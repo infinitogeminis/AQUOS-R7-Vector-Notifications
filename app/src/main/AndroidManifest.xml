@@ -4,5 +4,5 @@
         android:allowBackup="false"
         android:hasCode="true"
         android:label="AQUOS R7 Colored Notifications"
-        android:description="Restores original notification icon colours in SystemUI through Vector." />
+        android:description="@string/module_description" />
 </manifest>
