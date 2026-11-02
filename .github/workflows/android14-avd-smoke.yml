@@ -50,8 +50,8 @@ jobs:
           ./avdroot --version
           # Magisk 31.1 removed assets/stub.apk; avdroot's environment builder
           # still requires it. Pin the last pre-removal stable package.
-          ./avdroot magisk fetch --version 30.7 --dest downloads/Magisk-v30.7.apk
-          unzip -l downloads/Magisk-v30.7.apk > test-results/magisk-archive-list.txt
+          ./avdroot magisk fetch --version 29.0 --dest downloads/Magisk-v29.0.apk
+          unzip -l downloads/Magisk-v29.0.apk > test-results/magisk-archive-list.txt
           grep -F 'assets/stub.apk' test-results/magisk-archive-list.txt
           curl -fL https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
           sha256sum downloads/vector.zip | tee test-results/vector-sha256.txt
