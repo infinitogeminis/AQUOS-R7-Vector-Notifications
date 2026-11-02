@@ -12,9 +12,8 @@ import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 
 /**
- * Minimal AQUOS R7 adaptation of crDroid's third-party notification tint bypass.
- * Each hook is installed independently so one ROM-specific method mismatch
- * cannot prevent the remaining hooks from being installed.
+ * AQUOS R7 notification icon tint bypass.
+ * Hooks are installed independently to tolerate ROM-specific method differences.
  */
 public final class Entry extends XposedModule {
     private static final String TAG = "AQUOSR7ColoredNotifications";
@@ -26,10 +25,9 @@ public final class Entry extends XposedModule {
     public void onPackageReady(PackageReadyParam param) {
         if (!SYSTEM_UI.equals(param.getPackageName())) return;
 
-        ClassLoader loader = param.getClassLoader();
         final Class<?> iconClass;
         try {
-            iconClass = loader.loadClass(ICON_VIEW);
+            iconClass = param.getClassLoader().loadClass(ICON_VIEW);
         } catch (Throwable t) {
             Log.e(TAG, "StatusBarIconView class not found", t);
             return;
@@ -37,6 +35,7 @@ public final class Entry extends XposedModule {
 
         installStaticColorHook(iconClass);
         installUpdateColorHook(iconClass);
+        installContrastedColorHook(iconClass);
         Log.i(TAG, "Hook initialization finished");
     }
 
@@ -65,21 +64,30 @@ public final class Entry extends XposedModule {
     }
 
     private void installUpdateColorHook(Class<?> iconClass) {
+        installPostColorClearHook(iconClass, "updateIconColor",
+                "aquosr7-third-party-clear-icon-color");
+    }
+
+    private void installContrastedColorHook(Class<?> iconClass) {
+        installPostColorClearHook(iconClass, "updateContrastedStaticColor",
+                "aquosr7-third-party-clear-contrasted-color");
+    }
+
+    private void installPostColorClearHook(Class<?> iconClass, String methodName, String hookId) {
         try {
-            Method method = findMethod(iconClass, "updateIconColor");
-            if (method == null) throw new NoSuchMethodException("updateIconColor()");
+            Method method = findMethod(iconClass, methodName);
+            if (method == null) throw new NoSuchMethodException(methodName + "()");
             method.setAccessible(true);
 
-            hook(method).setId("aquosr7-third-party-clear-tint")
-                    .intercept(chain -> {
-                        Object view = chain.getThisObject();
-                        Object result = chain.proceed();
-                        if (isThirdParty(view)) clearImageTint(view);
-                        return result;
-                    });
-            Log.i(TAG, "Installed updateIconColor hook");
+            hook(method).setId(hookId).intercept(chain -> {
+                Object view = chain.getThisObject();
+                Object result = chain.proceed();
+                if (isThirdParty(view)) clearImageTint(view);
+                return result;
+            });
+            Log.i(TAG, "Installed " + methodName + " hook");
         } catch (Throwable t) {
-            Log.e(TAG, "Could not install updateIconColor hook", t);
+            Log.e(TAG, "Could not install " + methodName + " hook", t);
         }
     }
 
