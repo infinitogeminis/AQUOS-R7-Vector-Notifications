@@ -48,6 +48,11 @@ jobs:
           cp "$(go env GOPATH)/bin/avdroot" ./avdroot
           chmod +x avdroot
           ./avdroot --version
+          # Magisk 31.1 removed assets/stub.apk; avdroot's environment builder
+          # still requires it. Pin the last pre-removal stable package.
+          ./avdroot magisk fetch --version 30.7 --dest downloads/Magisk-v30.7.apk
+          unzip -l downloads/Magisk-v30.7.apk > test-results/magisk-archive-list.txt
+          grep -F 'assets/stub.apk' test-results/magisk-archive-list.txt
           curl -fL https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
           sha256sum downloads/vector.zip | tee test-results/vector-sha256.txt
           ./avdroot --help > test-results/avdroot-help.txt
@@ -65,9 +70,12 @@ jobs:
             set +e
             mkdir -p test-results
             adb wait-for-device
+            until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; do sleep 2; done
             adb shell getprop ro.build.version.release > test-results/android-version.txt 2>&1
             adb shell getprop ro.build.version.sdk > test-results/android-api.txt 2>&1
+            adb shell pidof com.android.systemui > test-results/systemui-pid-before-root.txt 2>&1
             adb exec-out screencap -p > test-results/android14-before-root.png 2>test-results/screencap-before-error.txt
+            file test-results/android14-before-root.png > test-results/screenshot-validation.txt
             ./avdroot root --yes --timeout 10m > test-results/avdroot-root.log 2>&1
             ROOT_RC=$?
             echo "$ROOT_RC" > test-results/avdroot-exit-code.txt
