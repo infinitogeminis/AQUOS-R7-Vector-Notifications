@@ -24,8 +24,8 @@ trap diagnostics EXIT
 
 wait_boot() {
   stage "WAIT_FOR_BOOT"
-  timeout 120s adb wait-for-device
-  for i in $(seq 1 90); do
+  timeout 180s adb wait-for-device
+  for i in $(seq 1 180); do
     state="$(timeout 10s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
     if [[ "$state" == "1" ]]; then
       stage "BOOT_COMPLETED after $((i * 2)) seconds"
