@@ -2,6 +2,12 @@ name: Android 14 KernelSU v3.3.1 emulator integration
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - test/android14-avd-smoke
+    paths:
+      - .github/workflows/android14-kernelsu-v331-probe.yml
+      - .github/scripts/android14-kernelsu-v331-smoke.sh
 
 permissions:
   contents: read
