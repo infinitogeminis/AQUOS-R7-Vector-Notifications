@@ -63,6 +63,12 @@ timeout 30s adb push downloads/ksud /data/local/tmp/ksud
 timeout 20s adb shell chmod 0755 /data/local/tmp/ksud
 timeout 20s adb shell /data/local/tmp/ksud --version | tee test-results/ksud-version.txt
 
+stage "VERIFY_KERNELSU_KMI_ASSET_SUPPORT"
+timeout 20s adb shell /data/local/tmp/ksud boot-info current-kmi | tee test-results/kernelsu-current-kmi.txt
+timeout 20s adb shell /data/local/tmp/ksud boot-info supported-kmis | tee test-results/kernelsu-supported-kmis.txt
+grep -Fxq "android12-5.10" test-results/kernelsu-supported-kmis.txt
+grep -Fxq "android12-5.10" test-results/kernelsu-current-kmi.txt
+
 stage "ACTIVATE_KERNELSU_USING_OFFICIAL_LATE_LOAD"
 # late-load performs LKM loading, userspace installation, module lifecycle setup,
 # SELinux policy initialization, and the late-load/post-mount/service stages.
