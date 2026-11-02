@@ -67,11 +67,11 @@ public final class Entry extends XposedModule {
                         Object view = chain.getThisObject();
                         Object result = chain.proceed();
                         if (!isThirdPartyNotification(view)) return result;
-                        Object[] args = chain.getArgs();
-                        if (args == null || args.length < 2
-                                || !(args[0] instanceof Context)
-                                || args[1] == null) return result;
-                        String packageName = readStringField(args[1], "pkg");
+                        java.util.List<?> args = chain.getArgs();
+                        if (args == null || args.size() < 2
+                                || !(args.get(0) instanceof Context)
+                                || args.get(1) == null) return result;
+                        String packageName = readStringField(args.get(1), "pkg");
                         if (packageName == null) {
                             StatusBarNotification sbn = getNotification(view);
                             if (sbn != null) packageName = sbn.getPackageName();
@@ -80,7 +80,7 @@ public final class Entry extends XposedModule {
                             return result;
                         }
                         try {
-                            return ((Context) args[0]).getPackageManager()
+                            return ((Context) args.get(0)).getPackageManager()
                                     .getApplicationIcon(packageName);
                         } catch (PackageManager.NameNotFoundException e) {
                             Log.w(TAG, "No launcher icon for " + packageName, e);
@@ -100,10 +100,10 @@ public final class Entry extends XposedModule {
                             if (isThirdPartyNotification(view)) {
                                 clearImageTint(view);
                                 Object[] args = chain.getArgs();
-                                if (args != null && args.length == 3
-                                        && args[2] instanceof Integer) {
+                                if (args != null && args.size() == 3
+                                        && args.get(2) instanceof Integer) {
                                     invokeSingleArg(view, "setDecorColor",
-                                            int.class, args[2]);
+                                            int.class, args.get(2));
                                 }
                             }
                             return result;
