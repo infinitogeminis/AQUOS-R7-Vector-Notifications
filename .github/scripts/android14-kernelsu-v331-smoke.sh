@@ -46,7 +46,7 @@ KERNEL_RELEASE="$(timeout 15s adb shell uname -r | tr -d '\r')"
 echo "$KERNEL_RELEASE" | tee test-results/kernel-release.txt
 
 # This workflow runs on the Android 14 x86_64 AVD, not on the AQUOS R7.
-# The AVD uses its own android14-6.1 KMI. The phone's android14-6.1 KMI
+# The AVD uses its own android14-6.1 KMI. The phone's android12-5.10 KMI
 # is validated separately on the physical device and must not gate this AVD test.
 if [[ ! "$KERNEL_RELEASE" =~ ^6\.1\.[0-9]+-android14- ]]; then
   echo "Kernel KMI mismatch: expected Android 14 AVD kernel 6.1.x-android14; got $KERNEL_RELEASE" | tee test-results/status.txt
