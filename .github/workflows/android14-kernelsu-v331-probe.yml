@@ -32,7 +32,7 @@ jobs:
       - name: Assemble notification APK
         run: gradle --no-daemon :app:assembleDebug
 
-      - name: Download KernelSU v3.3.1 LKM and module stack
+      - name: Download KernelSU v3.3.1 userspace and module stack
         shell: bash
         run: |
           set -euo pipefail
