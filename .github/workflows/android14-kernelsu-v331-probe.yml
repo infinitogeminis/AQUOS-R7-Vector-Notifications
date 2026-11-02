@@ -45,6 +45,9 @@ jobs:
           chmod 0755 downloads/ksud
           echo "b4a059ace71de2fa65cc7f12b1c58d55fc23ab25e057ee4230ce779742abe450  downloads/KernelSU-v3.3.1.apk" | sha256sum -c -
           echo "5324a1e8f2f3c74dc69624c4cd973fb9bc1d5da3614a2f2e694583f73bd13cbd  downloads/ksud" | sha256sum -c -
+          echo "2b1850e73bfb0b3dcec8b250272ee9a172b7456f5e2cb53bb5b11d5a0b8848c9  downloads/mountify.zip" | sha256sum -c -
+          echo "ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96  downloads/zygisk-next.zip" | sha256sum -c -
+          echo "9ee8323575d615f7b3f1076ff60b2a63a49390ef11881b52632311a37f6f79cc  downloads/vector.zip" | sha256sum -c -
           sha256sum downloads/* | tee test-results/download-sha256.txt
 
       - name: Create and boot Android 14 emulator
