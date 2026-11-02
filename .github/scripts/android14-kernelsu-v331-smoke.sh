@@ -57,18 +57,24 @@ stage "ADB_ROOT_BOOTSTRAP"
 timeout 30s adb root
 wait_boot
 
-stage "INSERT_KERNELSU_LKM"
-timeout 30s adb push downloads/kernelsu-x86_64-android14-6.1.ko /data/local/tmp/kernelsu.ko
-timeout 30s adb shell insmod /data/local/tmp/kernelsu.ko
-sleep 5
-timeout 20s adb shell dmesg > test-results/dmesg-after-kernelsu-insmod.txt 2>&1 || true
-
 stage "INSTALL_KERNELSU_MANAGER_AND_KSUD"
 timeout 60s adb install -r downloads/KernelSU-v3.3.1.apk
 timeout 30s adb push downloads/ksud /data/local/tmp/ksud
 timeout 20s adb shell chmod 0755 /data/local/tmp/ksud
 timeout 20s adb shell /data/local/tmp/ksud --version | tee test-results/ksud-version.txt
-timeout 30s adb shell su -c id | tee test-results/kernelsu-root-check.txt
+
+stage "ACTIVATE_KERNELSU_USING_OFFICIAL_LATE_LOAD"
+# late-load performs LKM loading, userspace installation, module lifecycle setup,
+# SELinux policy initialization, and the late-load/post-mount/service stages.
+timeout 90s adb shell /data/local/tmp/ksud late-load --kmi android14-6.1 --allow-shell
+for i in $(seq 1 30); do
+  if timeout 10s adb shell su -c id > test-results/kernelsu-root-check.txt 2>&1; then
+    if grep -q 'uid=0' test-results/kernelsu-root-check.txt; then break; fi
+  fi
+  sleep 2
+done
+grep -q 'uid=0' test-results/kernelsu-root-check.txt
+timeout 20s adb shell dmesg > test-results/dmesg-after-kernelsu-late-load.txt 2>&1 || true
 
 stage "INSTALL_ALL_THREE_MODULES_WITHOUT_INTERMEDIATE_REBOOT"
 for module in mountify zygisk-next vector; do
