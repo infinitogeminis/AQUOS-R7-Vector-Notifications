@@ -76,9 +76,13 @@ jobs:
             adb shell pidof com.android.systemui > test-results/systemui-pid-before-root.txt 2>&1
             adb exec-out screencap -p > test-results/android14-before-root.png 2>test-results/screencap-before-error.txt
             file test-results/android14-before-root.png > test-results/screenshot-validation.txt
-            ./avdroot root --yes --timeout 10m > test-results/avdroot-root.log 2>&1
+            ./avdroot root --magisk downloads/Magisk-v29.0.apk --yes --timeout 10m > test-results/avdroot-root.log 2>&1
             ROOT_RC=$?
             echo "$ROOT_RC" > test-results/avdroot-exit-code.txt
+            if [ "$ROOT_RC" -ne 0 ]; then
+              echo "Magisk root failed; stopping before Vector installation." | tee -a test-results/status.txt
+              exit "$ROOT_RC"
+            fi
             adb wait-for-device
             adb shell su -c id > test-results/root-identity.txt 2>&1
             adb shell su -c 'magisk -v' > test-results/magisk-version.txt 2>&1
