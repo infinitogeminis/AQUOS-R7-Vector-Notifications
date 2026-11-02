@@ -1,9 +1,6 @@
 name: Android 14 Vector module integration test
 
 on:
-  push:
-    branches:
-      - test/android14-avd-smoke
   workflow_dispatch:
 
 permissions:
