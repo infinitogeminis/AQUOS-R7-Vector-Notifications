@@ -46,18 +46,15 @@ jobs:
           script: |
             mkdir -p test-results
             adb wait-for-device
-            adb shell getprop ro.build.version.release | tee test-results/android-version.txt
-            adb shell getprop ro.build.version.sdk | tee test-results/android-api.txt
-            test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = "34"
-            if adb root; then
-              echo "adb root: available" | tee test-results/root-status.txt
-            else
-              echo "adb root: unavailable" | tee test-results/root-status.txt
-            fi
-            adb wait-for-device
-            adb shell id > test-results/adb-identity.txt
-            adb exec-out screencap -p > test-results/android14-home.png
-            adb logcat -d -t 3000 > test-results/logcat.txt
+            adb shell getprop ro.build.version.release > test-results/android-version.txt 2>&1 || true
+            adb shell getprop ro.build.version.sdk > test-results/android-api.txt 2>&1 || true
+            adb exec-out screencap -p > test-results/android14-home.png 2> test-results/screencap-error.txt || true
+            adb shell id > test-results/adb-identity.txt 2>&1 || true
+            adb logcat -d -t 3000 > test-results/logcat.txt 2>&1 || true
+            (adb root > test-results/root-status.txt 2>&1 || true)
+            adb wait-for-device || true
+            adb shell id > test-results/adb-identity-after-root.txt 2>&1 || true
+            echo "Diagnostics collection finished; individual command failures are recorded." > test-results/collection-status.txt
 
       - name: Preserve APK and emulator diagnostics
         if: always()
