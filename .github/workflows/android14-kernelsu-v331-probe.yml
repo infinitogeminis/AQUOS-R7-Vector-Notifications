@@ -29,17 +29,19 @@ jobs:
           gradle-version: '8.7'
       - run: gradle --no-daemon :app:assembleDebug
 
-      - name: Download exact KernelSU v3.3.1 tools and Vector
+      - name: Download KernelSU v3.3.1, Mountify, Zygisk Next and Vector
         run: |
           mkdir -p downloads test-results
           curl -fL https://github.com/tiann/KernelSU/releases/download/v3.3.1/KernelSU_v3.3.1_32680-release.apk -o downloads/KernelSU-v3.3.1.apk
           curl -fL https://github.com/tiann/KernelSU/releases/download/v3.3.1/ksud-x86_64-linux-android -o downloads/ksud
-          chmod 0755 downloads/ksud
+          curl -fL https://github.com/backslashxx/mountify/releases/download/205/mountify.zip -o downloads/mountify.zip
+          curl -fL https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/Zygisk-Next-1.5.2-864-a4a72ce-release.zip -o downloads/zygisk-next.zip
           curl -fL https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
+          chmod 0755 downloads/ksud
           sha256sum downloads/* | tee test-results/download-sha256.txt
           downloads/ksud --version > test-results/ksud-version.txt 2>&1 || true
 
-      - name: Boot Android 14 and diagnose KernelSU
+      - name: Boot Android 14 and install KernelSU module stack
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -51,14 +53,24 @@ jobs:
           script: |
             set +e
             mkdir -p test-results
-            adb wait-for-device
-            until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; do sleep 2; done
+            wait_boot() {
+              adb wait-for-device
+              for i in $(seq 1 180); do
+                state="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
+                [ "$state" = "1" ] && return 0
+                sleep 2
+              done
+              echo "BOOT_TIMEOUT" >> test-results/status.txt
+              return 1
+            }
+            wait_boot || exit 0
             adb shell getprop ro.build.version.release > test-results/android-version.txt 2>&1
             adb shell getprop ro.build.version.sdk > test-results/android-api.txt 2>&1
             adb shell uname -a > test-results/kernel-uname.txt 2>&1
-            adb shell getprop ro.product.cpu.abi > test-results/device-abi.txt 2>&1
+            adb shell cat /proc/filesystems > test-results/filesystems.txt 2>&1
+            adb shell zcat /proc/config.gz 2>/dev/null | grep -E 'CONFIG_OVERLAY_FS|CONFIG_TMPFS_XATTR' > test-results/overlay-kernel-config.txt
             adb root > test-results/adb-root.txt 2>&1
-            adb wait-for-device
+            wait_boot || exit 0
             adb install -r downloads/KernelSU-v3.3.1.apk > test-results/kernelsu-manager-install.txt 2>&1
             adb push downloads/ksud /data/local/tmp/ksud > test-results/ksud-push.txt 2>&1
             adb shell chmod 0755 /data/local/tmp/ksud
@@ -66,24 +78,34 @@ jobs:
             adb shell /data/local/tmp/ksud --help > test-results/ksud-help.txt 2>&1
             adb shell /data/local/tmp/ksud late-load --allow-shell > test-results/kernelsu-late-load.txt 2>&1
             adb shell /data/local/tmp/ksud module --help > test-results/ksud-module-help.txt 2>&1
-            adb shell /data/local/tmp/ksud module install --help > test-results/ksud-module-install-help.txt 2>&1
             adb shell su -c id > test-results/kernelsu-root-check.txt 2>&1
+            adb push downloads/mountify.zip /data/local/tmp/mountify.zip > test-results/mountify-push.txt 2>&1
+            adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/mountify.zip' > test-results/mountify-install.txt 2>&1
+            adb shell su -c '/data/local/tmp/ksud module list' > test-results/modules-after-mountify.txt 2>&1
+            adb reboot
+            wait_boot || exit 0
+            adb push downloads/zygisk-next.zip /data/local/tmp/zygisk-next.zip > test-results/zygisk-push.txt 2>&1
+            adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/zygisk-next.zip' > test-results/zygisk-install.txt 2>&1
             adb push downloads/vector.zip /data/local/tmp/vector.zip > test-results/vector-push.txt 2>&1
             adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/vector.zip' > test-results/vector-install.txt 2>&1
-            adb shell su -c '/data/local/tmp/ksud module list' > test-results/kernelsu-module-list.txt 2>&1
+            adb shell su -c '/data/local/tmp/ksud module list' > test-results/modules-before-final-reboot.txt 2>&1
+            adb reboot
+            wait_boot || exit 0
+            adb shell su -c id > test-results/kernelsu-root-check-final.txt 2>&1
+            adb shell su -c '/data/local/tmp/ksud module list' > test-results/modules-final.txt 2>&1
             adb install -r app/build/outputs/apk/debug/app-debug.apk > test-results/notification-apk-install.txt 2>&1
             adb shell pm path org.aquosr7.colorednotifications > test-results/notification-package-path.txt 2>&1
-            adb logcat -d -t 8000 > test-results/logcat.txt 2>&1
+            adb logcat -d -t 10000 > test-results/logcat.txt 2>&1
             {
-              echo "=== uname ==="; cat test-results/kernel-uname.txt
-              echo "=== ksud version ==="; cat test-results/ksud-runtime-version.txt
-              echo "=== late-load ==="; cat test-results/kernelsu-late-load.txt
-              echo "=== ksud help ==="; cat test-results/ksud-help.txt
-              echo "=== module help ==="; cat test-results/ksud-module-help.txt
-              echo "=== root check ==="; cat test-results/kernelsu-root-check.txt
-              echo "=== Vector install ==="; cat test-results/vector-install.txt
-              echo "=== module list ==="; cat test-results/kernelsu-module-list.txt
-              echo "=== notification APK ==="; cat test-results/notification-apk-install.txt
+              echo "=== kernel ==="; cat test-results/kernel-uname.txt
+              echo "=== overlayfs ==="; cat test-results/filesystems.txt
+              cat test-results/overlay-kernel-config.txt
+              echo "=== KernelSU root ==="; cat test-results/kernelsu-root-check-final.txt
+              echo "=== modules ==="; cat test-results/modules-final.txt
+              echo "=== Mountify ==="; cat test-results/mountify-install.txt
+              echo "=== Zygisk Next ==="; cat test-results/zygisk-install.txt
+              echo "=== Vector ==="; cat test-results/vector-install.txt
+              echo "=== APK ==="; cat test-results/notification-apk-install.txt
             } > test-results/status.txt
             exit 0
 
