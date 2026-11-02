@@ -45,13 +45,13 @@ timeout 15s adb shell uname -a | tee test-results/kernel-uname.txt
 KERNEL_RELEASE="$(timeout 15s adb shell uname -r | tr -d '\r')"
 echo "$KERNEL_RELEASE" | tee test-results/kernel-release.txt
 
-case "$KERNEL_RELEASE" in
-  *android14-6.1*) ;;
-  *)
-    echo "Kernel KMI mismatch: expected android14-6.1; got $KERNEL_RELEASE" | tee test-results/status.txt
-    exit 1
-    ;;
-esac
+# Kernel release format is VERSION-ANDROID_RELEASE-KMI_GENERATION-suffix.
+# For the android14-6.1 KMI, uname -r starts with 6.1.x-android14-N-...
+if [[ ! "$KERNEL_RELEASE" =~ ^6\\.1\\.[0-9]+-android14-[0-9]+- ]]; then
+  echo "Kernel KMI mismatch: expected 6.1.x-android14-N; got $KERNEL_RELEASE" | tee test-results/status.txt
+  exit 1
+fi
+echo "KMI check passed: android14-6.1" | tee test-results/kmi-check.txt
 
 stage "ADB_ROOT_BOOTSTRAP"
 timeout 30s adb root
