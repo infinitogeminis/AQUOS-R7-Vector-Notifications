@@ -1,9 +1,6 @@
 name: Android 14 KernelSU v3.3.1 integration probe
 
 on:
-  push:
-    branches:
-      - test/android14-avd-smoke
   workflow_dispatch:
 
 permissions:
@@ -51,7 +48,7 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
           disable-animations: true
           script: |
-            set +e
+            set -euo pipefail
             mkdir -p test-results
             wait_boot() {
               adb wait-for-device
@@ -73,7 +70,7 @@ jobs:
               adb exec-out screencap -p > test-results/screenshot-on-boot-timeout.png 2>test-results/screenshot-error.txt
               return 1
             }
-            wait_boot || exit 0
+            wait_boot || exit 1
             adb shell getprop ro.build.version.release > test-results/android-version.txt 2>&1
             adb shell getprop ro.build.version.sdk > test-results/android-api.txt 2>&1
             adb shell uname -a > test-results/kernel-uname.txt 2>&1
