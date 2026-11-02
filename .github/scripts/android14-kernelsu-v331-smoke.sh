@@ -76,8 +76,10 @@ done
 grep -q 'uid=0' test-results/kernelsu-root-check.txt
 timeout 20s adb shell dmesg > test-results/dmesg-after-kernelsu-late-load.txt 2>&1 || true
 
-stage "INSTALL_ALL_THREE_MODULES_WITHOUT_INTERMEDIATE_REBOOT"
-for module in mountify zygisk-next vector; do
+stage "INSTALL_REGULAR_MODULES_THEN_METAMODULE_WITHOUT_INTERMEDIATE_REBOOT"
+# KernelSU v3.3.1 blocks regular module installs while a metamodule with
+# metainstall.sh has a pending update. Install Mountify last, then reboot once.
+for module in zygisk-next vector mountify; do
   timeout 30s adb push "downloads/$module.zip" "/data/local/tmp/$module.zip"
   timeout 120s adb shell su -c "/data/local/tmp/ksud module install /data/local/tmp/$module.zip"
   stage "INSTALLED $module"
