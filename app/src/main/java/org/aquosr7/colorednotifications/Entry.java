@@ -1,5 +1,7 @@
 package org.aquosr7.colorednotifications;
 
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.ColorFilter;
 import android.service.notification.StatusBarNotification;
@@ -93,8 +95,27 @@ public final class Entry extends XposedModule {
 
     private static boolean isThirdParty(Object view) {
         StatusBarNotification sbn = getNotification(view);
-        return sbn != null && sbn.getPackageName() != null
-                && !SYSTEM_UI.equals(sbn.getPackageName());
+        if (sbn == null) return false;
+
+        String packageName = sbn.getPackageName();
+        if (packageName == null || SYSTEM_UI.equals(packageName)) return false;
+
+        // Fail closed: only remove tint when PackageManager confirms that the
+        // notifying package is a user-installed, non-system application.
+        try {
+            android.content.Context context = ((android.view.View) view).getContext();
+            PackageManager pm = context.getPackageManager();
+            ApplicationInfo info = pm.getApplicationInfo(packageName, 0);
+            int systemFlags = ApplicationInfo.FLAG_SYSTEM
+                    | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP;
+            return (info.flags & systemFlags) == 0;
+        } catch (PackageManager.NameNotFoundException | ClassCastException e) {
+            Log.w(TAG, "Cannot classify notification package; keeping stock tint", e);
+            return false;
+        } catch (Throwable t) {
+            Log.w(TAG, "Package classification failed; keeping stock tint", t);
+            return false;
+        }
     }
 
     private static StatusBarNotification getNotification(Object view) {
