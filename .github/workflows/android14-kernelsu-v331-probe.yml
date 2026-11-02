@@ -1,0 +1,98 @@
+name: Android 14 KernelSU v3.3.1 integration probe
+
+on:
+  push:
+    branches:
+      - test/android14-avd-smoke
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kernelsu-avd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build notification module
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - run: gradle --no-daemon :app:assembleDebug
+
+      - name: Download exact KernelSU v3.3.1 tools and Vector
+        run: |
+          mkdir -p downloads test-results
+          curl -fL https://github.com/tiann/KernelSU/releases/download/v3.3.1/KernelSU_v3.3.1_32680-release.apk -o downloads/KernelSU-v3.3.1.apk
+          curl -fL https://github.com/tiann/KernelSU/releases/download/v3.3.1/ksud-x86_64-linux-android -o downloads/ksud
+          chmod 0755 downloads/ksud
+          curl -fL https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
+          sha256sum downloads/* | tee test-results/download-sha256.txt
+          downloads/ksud --version > test-results/ksud-version.txt 2>&1 || true
+
+      - name: Boot Android 14 and activate KernelSU LKM
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
+          disable-animations: true
+          script: |
+            set +e
+            mkdir -p test-results
+            adb wait-for-device
+            until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; do sleep 2; done
+            adb shell getprop ro.build.version.release > test-results/android-version.txt 2>&1
+            adb shell getprop ro.build.version.sdk > test-results/android-api.txt 2>&1
+            adb shell uname -a > test-results/kernel-uname.txt 2>&1
+            adb shell getprop ro.product.cpu.abi > test-results/device-abi.txt 2>&1
+            adb root > test-results/adb-root.txt 2>&1
+            adb wait-for-device
+            adb install -r downloads/KernelSU-v3.3.1.apk > test-results/kernelsu-manager-install.txt 2>&1
+            adb push downloads/ksud /data/local/tmp/ksud > test-results/ksud-push.txt 2>&1
+            adb shell chmod 0755 /data/local/tmp/ksud
+            adb shell /data/local/tmp/ksud --version > test-results/ksud-runtime-version.txt 2>&1
+            adb shell /data/local/tmp/ksud late-load --allow-shell > test-results/kernelsu-late-load.txt 2>&1
+            adb shell /data/local/tmp/ksud info > test-results/kernelsu-info.txt 2>&1
+            adb shell su -c id > test-results/kernelsu-root-check.txt 2>&1
+            adb push downloads/vector.zip /data/local/tmp/vector.zip > test-results/vector-push.txt 2>&1
+            adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/vector.zip' > test-results/vector-install.txt 2>&1
+            adb shell su -c '/data/local/tmp/ksud module list' > test-results/kernelsu-module-list.txt 2>&1
+            adb install -r app/build/outputs/apk/debug/app-debug.apk > test-results/notification-apk-install.txt 2>&1
+            adb shell pm path org.aquosr7.colorednotifications > test-results/notification-package-path.txt 2>&1
+            adb shell am start -a android.intent.action.DIAL -d 'tel:*#*#832867#*#*' > test-results/vector-manager-launch.txt 2>&1
+            sleep 8
+            adb shell uiautomator dump /sdcard/window.xml > test-results/ui-dump-command.txt 2>&1
+            adb pull /sdcard/window.xml test-results/vector-manager-window.xml > test-results/ui-dump-pull.txt 2>&1
+            adb exec-out screencap -p > test-results/vector-manager.png 2>test-results/screencap-error.txt
+            adb logcat -d -t 8000 > test-results/logcat.txt 2>&1
+            echo "=== uname ===" >> test-results/status.txt
+            cat test-results/kernel-uname.txt >> test-results/status.txt
+            echo "=== KernelSU info ===" >> test-results/status.txt
+            cat test-results/kernelsu-info.txt >> test-results/status.txt
+            echo "=== root check ===" >> test-results/status.txt
+            cat test-results/kernelsu-root-check.txt >> test-results/status.txt
+            echo "=== Vector modules ===" >> test-results/status.txt
+            cat test-results/kernelsu-module-list.txt >> test-results/status.txt
+
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android14-kernelsu-v331-probe
+          path: |
+            downloads/
+            test-results/
+            app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
