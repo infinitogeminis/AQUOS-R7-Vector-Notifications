@@ -69,7 +69,7 @@ jobs:
           script: |
             set -Eeuo pipefail
             mkdir -p test-results
-            exec > >(tee -a test-results/emulator-session.log) 2>&1
+            # GitHub Actions captures script stdout; avoid bash-only process substitution here.
             stage() { echo "===== $(date -u +%FT%TZ) $* ====="; }
             diagnostics() {
               rc=$?
