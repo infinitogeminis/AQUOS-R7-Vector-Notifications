@@ -7,7 +7,7 @@ on:
       - test/android14-avd-smoke
     paths:
       - .github/workflows/android14-kernelsu-v331-probe.yml
-      - .github/scripts/android14-kernelsu-v331-probe.sh
+      - .github/scripts/android14-kernelsu-v331-smoke.sh
       - app/**
       - gradle/**
       - settings.gradle
@@ -23,7 +23,7 @@ concurrency:
 jobs:
   kernelsu-avd:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -58,16 +58,35 @@ jobs:
           echo "Expected KernelSU LKM SHA256: 91b23e528280ad891a96d455bb323b63ef51c181dc2b62d153c262e4577af78d" | tee test-results/kernelsu-module-expected-sha256.txt
           echo "91b23e528280ad891a96d455bb323b63ef51c181dc2b62d153c262e4577af78d  downloads/kernelsu-x86_64-android14-6.1.ko" | sha256sum -c -
 
-      - name: Boot Android 14 and activate KernelSU LKM
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          target: default
-          arch: x86_64
-          profile: pixel_5
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
-          disable-animations: true
-          script: bash .github/scripts/android14-kernelsu-v331-probe.sh
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Create and boot Android 14 emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platform-tools" "platforms;android-34" "system-images;android-34;google_apis;x86_64" "emulator"
+          echo "no" | avdmanager create avd --force --name aquosr7-api34 --package "system-images;android-34;google_apis;x86_64" --device "pixel_5"
+          mkdir -p test-results
+          emulator -avd aquosr7-api34 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics > test-results/emulator.log 2>&1 &
+          echo $! > test-results/emulator.pid
+          adb start-server
+          adb wait-for-device
+          for i in $(seq 1 240); do
+            boot="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+            if [[ "$boot" == "1" ]]; then break; fi
+            if ! kill -0 "$(cat test-results/emulator.pid)" 2>/dev/null; then
+              tail -200 test-results/emulator.log
+              exit 1
+            fi
+            sleep 2
+          done
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          adb devices -l | tee test-results/adb-devices.txt
+
+      - name: Activate KernelSU and install module stack
+        shell: bash
+        run: bash .github/scripts/android14-kernelsu-v331-smoke.sh
 
       - name: Preserve diagnostics and APK
         if: always()
