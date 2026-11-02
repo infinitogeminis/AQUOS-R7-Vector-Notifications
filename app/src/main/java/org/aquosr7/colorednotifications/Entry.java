@@ -1,20 +1,22 @@
 package org.aquosr7.colorednotifications;
 
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
+import android.graphics.ColorFilter;
+import android.graphics.drawable.Drawable;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 
 import io.github.libxposed.api.XposedModule;
-import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 
-/**
- * Keeps third-party notification icons untinted in AQUOS R7 SystemUI.
- * Port of crDroid's NO_COLOR + clear ColorFilter/ImageTintList behavior.
- */
+/** crDroid notification icon color behavior adapted to AQUOS R7 SystemUI. */
 public final class Entry extends XposedModule {
     private static final String TAG = "AQUOSR7ColoredNotifications";
     private static final String SYSTEM_UI = "com.android.systemui";
@@ -24,15 +26,11 @@ public final class Entry extends XposedModule {
     @Override
     public void onPackageReady(PackageReadyParam param) {
         if (!SYSTEM_UI.equals(param.getPackageName())) return;
-
         try {
             ClassLoader loader = param.getClassLoader();
             Class<?> iconClass = loader.loadClass(ICON_VIEW);
             Field noColorField = findField(iconClass, "NO_COLOR");
-            if (noColorField == null) {
-                Log.e(TAG, "NO_COLOR field not found; refusing unsafe tint override");
-                return;
-            }
+            if (noColorField == null) throw new NoSuchFieldException("NO_COLOR");
             noColorField.setAccessible(true);
             final int noColor = noColorField.getInt(null);
 
@@ -41,8 +39,7 @@ public final class Entry extends XposedModule {
             setStaticColor.setAccessible(true);
             hook(setStaticColor).setId("aquosr7-third-party-no-color")
                     .intercept(chain -> {
-                        Object view = chain.getThisObject();
-                        if (isThirdPartyNotification(view)) {
+                        if (isThirdPartyNotification(chain.getThisObject())) {
                             return chain.proceed(new Object[]{noColor});
                         }
                         return chain.proceed();
@@ -54,48 +51,116 @@ public final class Entry extends XposedModule {
                     .intercept(chain -> {
                         Object view = chain.getThisObject();
                         Object result = chain.proceed();
-                        if (isThirdPartyNotification(view)) {
-                            clearImageTint(view);
-                        }
+                        if (isThirdPartyNotification(view)) clearImageTint(view);
                         return result;
                     });
 
-            Log.i(TAG, "Installed crDroid-style notification tint hooks; NO_COLOR="
-                    + noColor);
+            // crDroid loadDrawable(): use the app's launcher icon instead of the
+            // notification's monochrome status-bar drawable for third-party apps.
+            Class<?> statusBarIconClass =
+                    loader.loadClass("com.android.internal.statusbar.StatusBarIcon");
+            Method loadDrawable = iconClass.getDeclaredMethod(
+                    "loadDrawable", Context.class, statusBarIconClass);
+            loadDrawable.setAccessible(true);
+            hook(loadDrawable).setId("aquosr7-third-party-application-icon")
+                    .intercept(chain -> {
+                        Object view = chain.getThisObject();
+                        Object result = chain.proceed();
+                        if (!isThirdPartyNotification(view)) return result;
+                        Object[] args = chain.getArgs();
+                        if (args == null || args.length < 2
+                                || !(args[0] instanceof Context)
+                                || args[1] == null) return result;
+                        String packageName = readStringField(args[1], "pkg");
+                        if (packageName == null) {
+                            StatusBarNotification sbn = getNotification(view);
+                            if (sbn != null) packageName = sbn.getPackageName();
+                        }
+                        if (packageName == null || SYSTEM_UI.equals(packageName)) {
+                            return result;
+                        }
+                        try {
+                            return ((Context) args[0]).getPackageManager()
+                                    .getApplicationIcon(packageName);
+                        } catch (PackageManager.NameNotFoundException e) {
+                            Log.w(TAG, "No launcher icon for " + packageName, e);
+                            return result;
+                        }
+                    });
+
+            // Reapply the crDroid dark-area behavior after AQUOS updates tint.
+            Method onDarkChanged = findMethodByNameAndCount(iconClass,
+                    "onDarkChanged", 3);
+            if (onDarkChanged != null) {
+                onDarkChanged.setAccessible(true);
+                hook(onDarkChanged).setId("aquosr7-third-party-dark-area")
+                        .intercept(chain -> {
+                            Object view = chain.getThisObject();
+                            Object result = chain.proceed();
+                            if (isThirdPartyNotification(view)) {
+                                clearImageTint(view);
+                                Object[] args = chain.getArgs();
+                                if (args != null && args.length == 3
+                                        && args[2] instanceof Integer) {
+                                    invokeSingleArg(view, "setDecorColor",
+                                            int.class, args[2]);
+                                }
+                            }
+                            return result;
+                        });
+            }
+
+            Log.i(TAG, "crDroid behavior installed: launcher drawable, NO_COLOR, "
+                    + "clear tint, dark-area handling");
         } catch (Throwable t) {
-            Log.e(TAG, "Failed to install notification color hooks", t);
+            Log.e(TAG, "Failed to install crDroid notification icon behavior", t);
         }
     }
 
     private static boolean isThirdPartyNotification(Object view) {
-        if (view == null) return false;
+        StatusBarNotification sbn = getNotification(view);
+        return sbn != null && sbn.getPackageName() != null
+                && !SYSTEM_UI.equals(sbn.getPackageName());
+    }
+
+    private static StatusBarNotification getNotification(Object view) {
         try {
-            Field notificationField = findField(view.getClass(), "mNotification");
-            if (notificationField == null) return false;
-            notificationField.setAccessible(true);
-            Object value = notificationField.get(view);
-            if (!(value instanceof StatusBarNotification)) return false;
-            String packageName = ((StatusBarNotification) value).getPackageName();
-            return packageName != null && !SYSTEM_UI.equals(packageName);
+            Field f = findField(view.getClass(), "mNotification");
+            if (f == null) return null;
+            f.setAccessible(true);
+            Object value = f.get(view);
+            return value instanceof StatusBarNotification
+                    ? (StatusBarNotification) value : null;
         } catch (Throwable ignored) {
-            return false;
+            return null;
+        }
+    }
+
+    private static String readStringField(Object target, String name) {
+        try {
+            Field f = findField(target.getClass(), name);
+            if (f == null) return null;
+            f.setAccessible(true);
+            Object value = f.get(target);
+            return value instanceof String ? (String) value : null;
+        } catch (Throwable ignored) {
+            return null;
         }
     }
 
     private static void clearImageTint(Object view) {
-        invokeSingleArg(view, "setColorFilter",
-                android.graphics.ColorFilter.class, null);
-        invokeSingleArg(view, "setImageTintList",
-                android.content.res.ColorStateList.class, null);
+        invokeSingleArg(view, "setColorFilter", ColorFilter.class, null);
+        invokeSingleArg(view, "setImageTintList", ColorStateList.class, null);
     }
 
     private static void invokeSingleArg(Object target, String name,
             Class<?> parameterType, Object value) {
         try {
             Method method = findMethod(target.getClass(), name, parameterType);
-            if (method == null) return;
-            method.setAccessible(true);
-            method.invoke(target, value);
+            if (method != null) {
+                method.setAccessible(true);
+                method.invoke(target, value);
+            }
         } catch (Throwable t) {
             Log.w(TAG, "Unable to invoke " + name, t);
         }
@@ -106,7 +171,17 @@ public final class Entry extends XposedModule {
             try {
                 Method m = c.getDeclaredMethod(name, parameter);
                 if (!Modifier.isStatic(m.getModifiers())) return m;
-            } catch (NoSuchMethodException ignored) {
+            } catch (NoSuchMethodException ignored) { }
+        }
+        return null;
+    }
+
+    private static Method findMethodByNameAndCount(
+            Class<?> type, String name, int count) {
+        for (Class<?> c = type; c != null; c = c.getSuperclass()) {
+            for (Method m : c.getDeclaredMethods()) {
+                if (m.getName().equals(name)
+                        && m.getParameterTypes().length == count) return m;
             }
         }
         return null;
@@ -114,10 +189,8 @@ public final class Entry extends XposedModule {
 
     private static Field findField(Class<?> type, String name) {
         for (Class<?> c = type; c != null; c = c.getSuperclass()) {
-            try {
-                return c.getDeclaredField(name);
-            } catch (NoSuchFieldException ignored) {
-            }
+            try { return c.getDeclaredField(name); }
+            catch (NoSuchFieldException ignored) { }
         }
         return null;
     }
