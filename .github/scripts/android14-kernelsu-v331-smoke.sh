@@ -47,7 +47,7 @@ echo "$KERNEL_RELEASE" | tee test-results/kernel-release.txt
 
 # Kernel release format is VERSION-ANDROID_RELEASE-KMI_GENERATION-suffix.
 # For the android14-6.1 KMI, uname -r starts with 6.1.x-android14-N-...
-if [[ ! "$KERNEL_RELEASE" =~ ^6\\.1\\.[0-9]+-android14-[0-9]+- ]]; then
+if [[ ! "$KERNEL_RELEASE" =~ ^6\.1\.[0-9]+-android14-[0-9]+- ]]; then
   echo "Kernel KMI mismatch: expected 6.1.x-android14-N; got $KERNEL_RELEASE" | tee test-results/status.txt
   exit 1
 fi
