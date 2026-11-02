@@ -39,7 +39,7 @@ jobs:
           sha256sum downloads/* | tee test-results/download-sha256.txt
           downloads/ksud --version > test-results/ksud-version.txt 2>&1 || true
 
-      - name: Boot Android 14 and activate KernelSU LKM
+      - name: Boot Android 14 and diagnose KernelSU
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -63,28 +63,29 @@ jobs:
             adb push downloads/ksud /data/local/tmp/ksud > test-results/ksud-push.txt 2>&1
             adb shell chmod 0755 /data/local/tmp/ksud
             adb shell /data/local/tmp/ksud --version > test-results/ksud-runtime-version.txt 2>&1
+            adb shell /data/local/tmp/ksud --help > test-results/ksud-help.txt 2>&1
             adb shell /data/local/tmp/ksud late-load --allow-shell > test-results/kernelsu-late-load.txt 2>&1
-            adb shell /data/local/tmp/ksud info > test-results/kernelsu-info.txt 2>&1
+            adb shell /data/local/tmp/ksud module --help > test-results/ksud-module-help.txt 2>&1
+            adb shell /data/local/tmp/ksud module install --help > test-results/ksud-module-install-help.txt 2>&1
             adb shell su -c id > test-results/kernelsu-root-check.txt 2>&1
             adb push downloads/vector.zip /data/local/tmp/vector.zip > test-results/vector-push.txt 2>&1
             adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/vector.zip' > test-results/vector-install.txt 2>&1
             adb shell su -c '/data/local/tmp/ksud module list' > test-results/kernelsu-module-list.txt 2>&1
             adb install -r app/build/outputs/apk/debug/app-debug.apk > test-results/notification-apk-install.txt 2>&1
             adb shell pm path org.aquosr7.colorednotifications > test-results/notification-package-path.txt 2>&1
-            adb shell am start -a android.intent.action.DIAL -d 'tel:*#*#832867#*#*' > test-results/vector-manager-launch.txt 2>&1
-            sleep 8
-            adb shell uiautomator dump /sdcard/window.xml > test-results/ui-dump-command.txt 2>&1
-            adb pull /sdcard/window.xml test-results/vector-manager-window.xml > test-results/ui-dump-pull.txt 2>&1
-            adb exec-out screencap -p > test-results/vector-manager.png 2>test-results/screencap-error.txt
             adb logcat -d -t 8000 > test-results/logcat.txt 2>&1
-            echo "=== uname ===" >> test-results/status.txt
-            cat test-results/kernel-uname.txt >> test-results/status.txt
-            echo "=== KernelSU info ===" >> test-results/status.txt
-            cat test-results/kernelsu-info.txt >> test-results/status.txt
-            echo "=== root check ===" >> test-results/status.txt
-            cat test-results/kernelsu-root-check.txt >> test-results/status.txt
-            echo "=== Vector modules ===" >> test-results/status.txt
-            cat test-results/kernelsu-module-list.txt >> test-results/status.txt
+            {
+              echo "=== uname ==="; cat test-results/kernel-uname.txt
+              echo "=== ksud version ==="; cat test-results/ksud-runtime-version.txt
+              echo "=== late-load ==="; cat test-results/kernelsu-late-load.txt
+              echo "=== ksud help ==="; cat test-results/ksud-help.txt
+              echo "=== module help ==="; cat test-results/ksud-module-help.txt
+              echo "=== root check ==="; cat test-results/kernelsu-root-check.txt
+              echo "=== Vector install ==="; cat test-results/vector-install.txt
+              echo "=== module list ==="; cat test-results/kernelsu-module-list.txt
+              echo "=== notification APK ==="; cat test-results/notification-apk-install.txt
+            } > test-results/status.txt
+            exit 0
 
       - name: Preserve diagnostics
         if: always()
