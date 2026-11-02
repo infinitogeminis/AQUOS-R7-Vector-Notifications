@@ -37,16 +37,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p downloads test-results
-          curl -fL --retry 3 https://github.com/tiann/KernelSU/releases/download/v3.3.1/lkm-x86_64-android14-6.1_kernelsu.ko -o downloads/kernelsu-x86_64-android14-6.1.ko
           curl -fL --retry 3 https://github.com/tiann/KernelSU/releases/download/v3.3.1/KernelSU_v3.3.1_32680-release.apk -o downloads/KernelSU-v3.3.1.apk
           curl -fL --retry 3 https://github.com/tiann/KernelSU/releases/download/v3.3.1/ksud-x86_64-linux-android -o downloads/ksud
           curl -fL --retry 3 https://github.com/backslashxx/mountify/releases/download/205/mountify.zip -o downloads/mountify.zip
           curl -fL --retry 3 https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/Zygisk-Next-1.5.2-864-a4a72ce-release.zip -o downloads/zygisk-next.zip
           curl -fL --retry 3 https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
           chmod 0755 downloads/ksud
+          echo "b4a059ace71de2fa65cc7f12b1c58d55fc23ab25e057ee4230ce779742abe450  downloads/KernelSU-v3.3.1.apk" | sha256sum -c -
+          echo "5324a1e8f2f3c74dc69624c4cd973fb9bc1d5da3614a2f2e694583f73bd13cbd  downloads/ksud" | sha256sum -c -
           sha256sum downloads/* | tee test-results/download-sha256.txt
-          echo "Expected KernelSU LKM SHA256: 91b23e528280ad891a96d455bb323b63ef51c181dc2b62d153c262e4577af78d" | tee test-results/kernelsu-module-expected-sha256.txt
-          echo "91b23e528280ad891a96d455bb323b63ef51c181dc2b62d153c262e4577af78d  downloads/kernelsu-x86_64-android14-6.1.ko" | sha256sum -c -
 
       - name: Create and boot Android 14 emulator
         shell: bash
