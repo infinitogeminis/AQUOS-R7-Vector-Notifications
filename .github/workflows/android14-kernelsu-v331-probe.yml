@@ -58,14 +58,14 @@ jobs:
           echo "Expected KernelSU LKM SHA256: 91b23e528280ad891a96d455bb323b63ef51c181dc2b62d153c262e4577af78d" | tee test-results/kernelsu-module-expected-sha256.txt
           echo "91b23e528280ad891a96d455bb323b63ef51c181dc2b62d153c262e4577af78d  downloads/kernelsu-x86_64-android14-6.1.ko" | sha256sum -c -
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Create and boot Android 14 emulator
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager "platform-tools" "platforms;android-34" "system-images;android-34;google_apis;x86_64" "emulator"
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/cmdline-tools/16.0/bin:$PATH"
+          sdkmanager --install "platform-tools" "platforms;android-34" "system-images;android-34;google_apis;x86_64" "emulator"
           echo "no" | avdmanager create avd --force --name aquosr7-api34 --package "system-images;android-34;google_apis;x86_64" --device "pixel_5"
           mkdir -p test-results
           emulator -avd aquosr7-api34 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics > test-results/emulator.log 2>&1 &
