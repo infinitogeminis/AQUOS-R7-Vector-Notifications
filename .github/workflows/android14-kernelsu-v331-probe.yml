@@ -57,10 +57,20 @@ jobs:
               adb wait-for-device
               for i in $(seq 1 180); do
                 state="$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')"
-                [ "$state" = "1" ] && return 0
+                if [ "$state" = "1" ]; then
+                  echo "BOOT_COMPLETED after $((i * 2)) seconds"
+                  return 0
+                fi
+                if [ $((i % 10)) -eq 0 ]; then
+                  echo "Waiting for Android boot: $((i * 2))/360 seconds; sys.boot_completed=$state"
+                fi
                 sleep 2
               done
-              echo "BOOT_TIMEOUT" >> test-results/status.txt
+              echo "BOOT_TIMEOUT after 360 seconds" | tee -a test-results/status.txt
+              adb shell getprop > test-results/getprop-on-boot-timeout.txt 2>&1
+              adb shell ps -A > test-results/processes-on-boot-timeout.txt 2>&1
+              adb logcat -d -t 5000 > test-results/logcat-on-boot-timeout.txt 2>&1
+              adb exec-out screencap -p > test-results/screenshot-on-boot-timeout.png 2>test-results/screenshot-error.txt
               return 1
             }
             wait_boot || exit 0
