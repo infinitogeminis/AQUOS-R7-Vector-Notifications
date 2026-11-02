@@ -2,16 +2,6 @@ name: Android 14 KernelSU v3.3.1 emulator integration
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - test/android14-avd-smoke
-    paths:
-      - .github/workflows/android14-kernelsu-v331-probe.yml
-      - .github/scripts/android14-kernelsu-v331-smoke.sh
-      - app/**
-      - gradle/**
-      - settings.gradle
-      - build.gradle
 
 permissions:
   contents: read
@@ -64,6 +54,8 @@ jobs:
           set -euo pipefail
           export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
+          mkdir -p "$ANDROID_AVD_HOME"
           export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/cmdline-tools/16.0/bin:$PATH"
           run_sdkmanager() {
             set +e
@@ -76,8 +68,11 @@ jobs:
           }
           run_sdkmanager --licenses
           run_sdkmanager --install "platform-tools" "platforms;android-34" "system-images;android-34;google_apis;x86_64" "emulator"
-          echo "no" | avdmanager create avd --force --name aquosr7-api34 --package "system-images;android-34;google_apis;x86_64" --device "pixel_5"
-          mkdir -p test-results
+          printf 'no\n' | avdmanager create avd --force --name aquosr7-api34 --package "system-images;android-34;google_apis;x86_64" --device "pixel_5" 2>&1 | tee test-results/avdmanager-create.log
+          avdmanager list avd 2>&1 | tee test-results/avdmanager-list.log
+          test -s "$ANDROID_AVD_HOME/aquosr7-api34.ini"
+          test -s "$ANDROID_AVD_HOME/aquosr7-api34.avd/config.ini"
+          grep -q '^image.sysdir.1=' "$ANDROID_AVD_HOME/aquosr7-api34.avd/config.ini"
           emulator -avd aquosr7-api34 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics > test-results/emulator.log 2>&1 &
           echo $! > test-results/emulator.pid
           adb start-server
