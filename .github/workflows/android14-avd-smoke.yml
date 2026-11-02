@@ -1,0 +1,70 @@
+name: Android 14 AVD smoke test
+
+on:
+  push:
+    branches:
+      - test/android14-avd-smoke
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android14-avd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Build module APK
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - run: gradle --no-daemon :app:assembleDebug
+
+      - name: Boot Android 14 emulator and collect diagnostics
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: Pixel_6
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          disable-animations: true
+          script: |
+            mkdir -p test-results
+            adb wait-for-device
+            adb shell getprop ro.build.version.release | tee test-results/android-version.txt
+            adb shell getprop ro.build.version.sdk | tee test-results/android-api.txt
+            test "$(adb shell getprop ro.build.version.sdk | tr -d '\r')" = "34"
+            if adb root; then
+              echo "adb root: available" | tee test-results/root-status.txt
+            else
+              echo "adb root: unavailable" | tee test-results/root-status.txt
+            fi
+            adb wait-for-device
+            adb shell id > test-results/adb-identity.txt
+            adb exec-out screencap -p > test-results/android14-home.png
+            adb logcat -d -t 3000 > test-results/logcat.txt
+
+      - name: Preserve APK and emulator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android14-avd-smoke-results
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            test-results/
+          if-no-files-found: warn
