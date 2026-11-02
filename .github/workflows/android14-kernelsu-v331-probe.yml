@@ -1,15 +1,28 @@
-name: Android 14 KernelSU v3.3.1 integration probe
+name: Android 14 KernelSU v3.3.1 emulator integration
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - test/android14-avd-smoke
+    paths:
+      - .github/workflows/android14-kernelsu-v331-probe.yml
+      - app/**
+      - gradle/**
+      - settings.gradle
+      - build.gradle
 
 permissions:
   contents: read
 
+concurrency:
+  group: android14-kernelsu-emulator
+  cancel-in-progress: false
+
 jobs:
   kernelsu-avd:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,21 +37,27 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-      - run: gradle --no-daemon :app:assembleDebug
 
-      - name: Download KernelSU v3.3.1, Mountify, Zygisk Next and Vector
+      - name: Assemble notification APK
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Download KernelSU v3.3.1 LKM and module stack
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p downloads test-results
-          curl -fL https://github.com/tiann/KernelSU/releases/download/v3.3.1/KernelSU_v3.3.1_32680-release.apk -o downloads/KernelSU-v3.3.1.apk
-          curl -fL https://github.com/tiann/KernelSU/releases/download/v3.3.1/ksud-x86_64-linux-android -o downloads/ksud
-          curl -fL https://github.com/backslashxx/mountify/releases/download/205/mountify.zip -o downloads/mountify.zip
-          curl -fL https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/Zygisk-Next-1.5.2-864-a4a72ce-release.zip -o downloads/zygisk-next.zip
-          curl -fL https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
+          curl -fL --retry 3 https://github.com/tiann/KernelSU/releases/download/v3.3.1/lkm-x86_64-android14-6.1_kernelsu.ko -o downloads/kernelsu-x86_64-android14-6.1.ko
+          curl -fL --retry 3 https://github.com/tiann/KernelSU/releases/download/v3.3.1/KernelSU_v3.3.1_32680-release.apk -o downloads/KernelSU-v3.3.1.apk
+          curl -fL --retry 3 https://github.com/tiann/KernelSU/releases/download/v3.3.1/ksud-x86_64-linux-android -o downloads/ksud
+          curl -fL --retry 3 https://github.com/backslashxx/mountify/releases/download/205/mountify.zip -o downloads/mountify.zip
+          curl -fL --retry 3 https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/Zygisk-Next-1.5.2-864-a4a72ce-release.zip -o downloads/zygisk-next.zip
+          curl -fL --retry 3 https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
           chmod 0755 downloads/ksud
           sha256sum downloads/* | tee test-results/download-sha256.txt
-          downloads/ksud --version > test-results/ksud-version.txt 2>&1 || true
+          echo "Expected KernelSU LKM SHA256: 91b23e528280ad891a96d455bb323b63ef51c181dc2b62d153c262e4577af78d" | tee test-results/kernelsu-module-expected-sha256.txt
+          echo "91b23e528280ad891a96d455bb323b63ef51c181dc2b62d153c262e4577af78d  downloads/kernelsu-x86_64-android14-6.1.ko" | sha256sum -c -
 
-      - name: Boot Android 14 and install KernelSU module stack
+      - name: Boot Android 14 and activate KernelSU LKM
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -58,69 +77,82 @@ jobs:
                   echo "BOOT_COMPLETED after $((i * 2)) seconds"
                   return 0
                 fi
-                if [ $((i % 10)) -eq 0 ]; then
-                  echo "Waiting for Android boot: $((i * 2))/360 seconds; sys.boot_completed=$state"
-                fi
                 sleep 2
               done
-              echo "BOOT_TIMEOUT after 360 seconds" | tee -a test-results/status.txt
-              adb shell getprop > test-results/getprop-on-boot-timeout.txt 2>&1
-              adb shell ps -A > test-results/processes-on-boot-timeout.txt 2>&1
-              adb logcat -d -t 5000 > test-results/logcat-on-boot-timeout.txt 2>&1
-              adb exec-out screencap -p > test-results/screenshot-on-boot-timeout.png 2>test-results/screenshot-error.txt
+              echo "BOOT_TIMEOUT" | tee -a test-results/status.txt
+              adb logcat -d -t 5000 > test-results/logcat-boot-timeout.txt 2>&1 || true
               return 1
             }
-            wait_boot || exit 1
-            adb shell getprop ro.build.version.release > test-results/android-version.txt 2>&1
-            adb shell getprop ro.build.version.sdk > test-results/android-api.txt 2>&1
-            adb shell uname -a > test-results/kernel-uname.txt 2>&1
-            adb shell cat /proc/filesystems > test-results/filesystems.txt 2>&1
-            adb shell zcat /proc/config.gz 2>/dev/null | grep -E 'CONFIG_OVERLAY_FS|CONFIG_TMPFS_XATTR' > test-results/overlay-kernel-config.txt
-            adb root > test-results/adb-root.txt 2>&1
-            wait_boot || exit 0
-            adb install -r downloads/KernelSU-v3.3.1.apk > test-results/kernelsu-manager-install.txt 2>&1
-            adb push downloads/ksud /data/local/tmp/ksud > test-results/ksud-push.txt 2>&1
-            adb shell chmod 0755 /data/local/tmp/ksud
-            adb shell /data/local/tmp/ksud --version > test-results/ksud-runtime-version.txt 2>&1
-            adb shell /data/local/tmp/ksud --help > test-results/ksud-help.txt 2>&1
-            adb shell /data/local/tmp/ksud late-load --allow-shell > test-results/kernelsu-late-load.txt 2>&1
-            adb shell /data/local/tmp/ksud module --help > test-results/ksud-module-help.txt 2>&1
-            adb shell su -c id > test-results/kernelsu-root-check.txt 2>&1
-            adb push downloads/mountify.zip /data/local/tmp/mountify.zip > test-results/mountify-push.txt 2>&1
-            adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/mountify.zip' > test-results/mountify-install.txt 2>&1
-            adb shell su -c '/data/local/tmp/ksud module list' > test-results/modules-after-mountify.txt 2>&1
-            adb reboot
-            wait_boot || exit 0
-            adb push downloads/zygisk-next.zip /data/local/tmp/zygisk-next.zip > test-results/zygisk-push.txt 2>&1
-            adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/zygisk-next.zip' > test-results/zygisk-install.txt 2>&1
-            adb push downloads/vector.zip /data/local/tmp/vector.zip > test-results/vector-push.txt 2>&1
-            adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/vector.zip' > test-results/vector-install.txt 2>&1
-            adb shell su -c '/data/local/tmp/ksud module list' > test-results/modules-before-final-reboot.txt 2>&1
-            adb reboot
-            wait_boot || exit 0
-            adb shell su -c id > test-results/kernelsu-root-check-final.txt 2>&1
-            adb shell su -c '/data/local/tmp/ksud module list' > test-results/modules-final.txt 2>&1
-            adb install -r app/build/outputs/apk/debug/app-debug.apk > test-results/notification-apk-install.txt 2>&1
-            adb shell pm path org.aquosr7.colorednotifications > test-results/notification-package-path.txt 2>&1
-            adb logcat -d -t 10000 > test-results/logcat.txt 2>&1
-            {
-              echo "=== kernel ==="; cat test-results/kernel-uname.txt
-              echo "=== overlayfs ==="; cat test-results/filesystems.txt
-              cat test-results/overlay-kernel-config.txt
-              echo "=== KernelSU root ==="; cat test-results/kernelsu-root-check-final.txt
-              echo "=== modules ==="; cat test-results/modules-final.txt
-              echo "=== Mountify ==="; cat test-results/mountify-install.txt
-              echo "=== Zygisk Next ==="; cat test-results/zygisk-install.txt
-              echo "=== Vector ==="; cat test-results/vector-install.txt
-              echo "=== APK ==="; cat test-results/notification-apk-install.txt
-            } > test-results/status.txt
-            exit 0
 
-      - name: Preserve diagnostics
+            wait_boot
+            adb shell getprop ro.build.version.release | tee test-results/android-version.txt
+            adb shell getprop ro.build.version.sdk | tee test-results/android-api.txt
+            adb shell uname -a | tee test-results/kernel-uname.txt
+            adb shell cat /proc/version | tee test-results/kernel-version.txt
+
+            KERNEL_RELEASE="$(adb shell uname -r | tr -d '\r')"
+            echo "Kernel release: $KERNEL_RELEASE" | tee test-results/kernel-release.txt
+            case "$KERNEL_RELEASE" in
+              *android14-6.1*) ;;
+              *)
+                echo "Kernel KMI mismatch: expected android14-6.1; got $KERNEL_RELEASE" | tee test-results/status.txt
+                exit 1
+                ;;
+            esac
+
+            # adb root is used only as a bootstrap to insert the KernelSU LKM.
+            # It is NOT counted as proof that KernelSU is active.
+            adb root
+            wait_boot
+            adb push downloads/kernelsu-x86_64-android14-6.1.ko /data/local/tmp/kernelsu.ko
+            adb shell insmod /data/local/tmp/kernelsu.ko
+            sleep 5
+            adb shell dmesg | tail -n 300 > test-results/dmesg-after-kernelsu-insmod.txt 2>&1 || true
+
+            adb install -r downloads/KernelSU-v3.3.1.apk
+            adb push downloads/ksud /data/local/tmp/ksud
+            adb shell chmod 0755 /data/local/tmp/ksud
+            adb shell /data/local/tmp/ksud --version | tee test-results/ksud-version.txt
+            adb shell su -c id | tee test-results/kernelsu-root-check.txt
+
+            adb push downloads/mountify.zip /data/local/tmp/mountify.zip
+            adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/mountify.zip'
+            adb shell su -c '/data/local/tmp/ksud module list' | tee test-results/modules-after-mountify.txt
+            adb reboot
+            wait_boot
+
+            adb push downloads/zygisk-next.zip /data/local/tmp/zygisk-next.zip
+            adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/zygisk-next.zip'
+            adb push downloads/vector.zip /data/local/tmp/vector.zip
+            adb shell su -c '/data/local/tmp/ksud module install /data/local/tmp/vector.zip'
+            adb shell su -c '/data/local/tmp/ksud module list' | tee test-results/modules-before-final-reboot.txt
+            adb reboot
+            wait_boot
+
+            adb shell su -c id | tee test-results/kernelsu-root-check-final.txt
+            adb shell su -c '/data/local/tmp/ksud module list' | tee test-results/modules-final.txt
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm path org.aquosr7.colorednotifications | tee test-results/notification-package-path.txt
+            adb shell cat /proc/filesystems | tee test-results/filesystems.txt
+            adb shell zcat /proc/config.gz 2>/dev/null | grep -E 'CONFIG_OVERLAY_FS|CONFIG_TMPFS_XATTR|CONFIG_MODULES' | tee test-results/kernel-config-features.txt
+            adb logcat -d -t 10000 > test-results/logcat.txt 2>&1
+            adb exec-out screencap -p > test-results/android14-kernelsu-screen.png
+            {
+              echo "ANDROID 14 + KernelSU v3.3.1 LKM smoke test"
+              echo "Kernel: $KERNEL_RELEASE"
+              echo "Root check:"
+              cat test-results/kernelsu-root-check-final.txt
+              echo "Modules:"
+              cat test-results/modules-final.txt
+              echo "APK:"
+              cat test-results/notification-package-path.txt
+            } | tee test-results/status.txt
+
+      - name: Preserve diagnostics and APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android14-kernelsu-v331-probe
+          name: android14-kernelsu-v331-emulator
           path: |
             downloads/
             test-results/
