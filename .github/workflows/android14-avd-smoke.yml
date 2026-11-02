@@ -1,4 +1,4 @@
-name: Android 14 AVD smoke test
+name: Android 14 Vector module integration test
 
 on:
   push:
@@ -10,9 +10,9 @@ permissions:
   contents: read
 
 jobs:
-  android14-avd:
+  android14-vector:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,45 +23,77 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
 
-      - name: Build module APK
+      - name: Build notification module
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
       - run: gradle --no-daemon :app:assembleDebug
 
-      - name: Boot Android 14 emulator and collect diagnostics
+      - name: Prepare avdroot and Vector
+        run: |
+          mkdir -p downloads test-results
+          curl -fL https://github.com/ejfkdev/avdroot/releases/download/v0.1.1/avdroot_linux_amd64 -o avdroot
+          chmod +x avdroot
+          curl -fL https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
+          sha256sum downloads/vector.zip | tee test-results/vector-sha256.txt
+          ./avdroot --help > test-results/avdroot-help.txt
+
+      - name: Boot rooted Android 14 and install Vector
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           target: default
           arch: x86_64
           profile: pixel_5
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
           disable-animations: true
           script: |
+            set +e
             mkdir -p test-results
             adb wait-for-device
-            adb shell getprop ro.build.version.release > test-results/android-version.txt 2>&1 || true
-            adb shell getprop ro.build.version.sdk > test-results/android-api.txt 2>&1 || true
-            adb exec-out screencap -p > test-results/android14-home.png 2> test-results/screencap-error.txt || true
-            adb shell id > test-results/adb-identity.txt 2>&1 || true
-            adb logcat -d -t 3000 > test-results/logcat.txt 2>&1 || true
-            (adb root > test-results/root-status.txt 2>&1 || true)
-            adb wait-for-device || true
-            adb shell id > test-results/adb-identity-after-root.txt 2>&1 || true
-            echo "Diagnostics collection finished; individual command failures are recorded." > test-results/collection-status.txt
+            adb shell getprop ro.build.version.release > test-results/android-version.txt 2>&1
+            adb shell getprop ro.build.version.sdk > test-results/android-api.txt 2>&1
+            adb exec-out screencap -p > test-results/android14-before-root.png 2>test-results/screencap-before-error.txt
+            ./avdroot root --yes --timeout 10m > test-results/avdroot-root.log 2>&1
+            ROOT_RC=$?
+            echo "$ROOT_RC" > test-results/avdroot-exit-code.txt
+            adb wait-for-device
+            adb shell su -c id > test-results/root-identity.txt 2>&1
+            adb shell su -c 'magisk -v' > test-results/magisk-version.txt 2>&1
+            adb push downloads/vector.zip /data/local/tmp/vector.zip > test-results/vector-push.log 2>&1
+            adb shell su -c 'magisk --install-module /data/local/tmp/vector.zip' > test-results/vector-install.log 2>&1
+            adb reboot
+            adb wait-for-device
+            adb shell su -c 'magisk -v' > test-results/magisk-after-reboot.txt 2>&1
+            adb install -r app/build/outputs/apk/debug/app-debug.apk > test-results/module-apk-install.txt 2>&1
+            adb shell pm path org.aquosr7.colorednotifications > test-results/module-package-path.txt 2>&1
+            adb shell am start -a android.intent.action.DIAL -d 'tel:*#*#832867#*#*' > test-results/vector-manager-launch.txt 2>&1
+            sleep 8
+            adb shell uiautomator dump /sdcard/window.xml > test-results/ui-dump-command.txt 2>&1
+            adb pull /sdcard/window.xml test-results/vector-manager-window.xml > test-results/ui-dump-pull.txt 2>&1
+            adb exec-out screencap -p > test-results/vector-manager.png 2>test-results/screencap-manager-error.txt
+            adb logcat -d -t 6000 > test-results/logcat.txt 2>&1
+            echo "root_exit=$ROOT_RC" > test-results/status.txt
+            adb shell su -c id >> test-results/status.txt 2>&1
 
-      - name: Preserve APK and emulator diagnostics
+      - name: Preserve APK and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android14-avd-smoke-results
+          name: android14-vector-integration-results
           path: |
             app/build/outputs/apk/debug/app-debug.apk
+            downloads/
             test-results/
+            avdroot
           if-no-files-found: warn
