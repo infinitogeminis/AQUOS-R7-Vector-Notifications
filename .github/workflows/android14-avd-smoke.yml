@@ -42,8 +42,12 @@ jobs:
       - name: Prepare avdroot and Vector
         run: |
           mkdir -p downloads test-results
-          curl -fL https://github.com/ejfkdev/avdroot/releases/download/v0.1.1/avdroot_linux_amd64 -o avdroot
+          # Build avdroot from current main: release v0.1.1 has a Magisk
+          # payload parser that rejects the current official Magisk APK archive.
+          go install github.com/ejfkdev/avdroot@main
+          cp "$(go env GOPATH)/bin/avdroot" ./avdroot
           chmod +x avdroot
+          ./avdroot --version
           curl -fL https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
           sha256sum downloads/vector.zip | tee test-results/vector-sha256.txt
           ./avdroot --help > test-results/avdroot-help.txt
