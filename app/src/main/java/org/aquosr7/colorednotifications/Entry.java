@@ -99,7 +99,7 @@ public final class Entry extends XposedModule {
                             Object result = chain.proceed();
                             if (isThirdPartyNotification(view)) {
                                 clearImageTint(view);
-                                Object[] args = chain.getArgs();
+                                java.util.List<?> args = chain.getArgs();
                                 if (args != null && args.size() == 3
                                         && args.get(2) instanceof Integer) {
                                     invokeSingleArg(view, "setDecorColor",
