@@ -1,8 +1,8 @@
 package org.aquosr7.colorednotifications;
 
-import android.content.Context;
 import android.content.res.ColorStateList;
-import android.graphics.drawable.Drawable;
+import android.graphics.ColorFilter;
+import android.service.notification.StatusBarNotification;
 import android.util.Log;
 
 import java.lang.reflect.Field;
@@ -12,180 +12,125 @@ import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 
 /**
- * crDroid-style original application icons for AQUOS R7 SystemUI.
- *
- * Replaces the notification small-icon drawable with the notifying
- * application's launcher icon and disables SystemUI tint for that icon.
- * SystemUI-owned icons keep their stock drawable and tint.
+ * AQUOS R7 notification icon tint bypass.
+ * Hooks are installed independently to tolerate ROM-specific method differences.
  */
 public final class Entry extends XposedModule {
     private static final String TAG = "AQUOSR7ColoredNotifications";
     private static final String SYSTEM_UI = "com.android.systemui";
     private static final String ICON_VIEW =
             "com.android.systemui.statusbar.StatusBarIconView";
-    private static final String STATUS_BAR_ICON =
-            "com.android.internal.statusbar.StatusBarIcon";
 
     @Override
     public void onPackageReady(PackageReadyParam param) {
         if (!SYSTEM_UI.equals(param.getPackageName())) return;
 
-        final ClassLoader loader = param.getClassLoader();
+        final Class<?> iconClass;
         try {
-            Class<?> iconClass = loader.loadClass(ICON_VIEW);
-            installOriginalApplicationIconHook(iconClass, loader);
-            installNoTintHooks(iconClass);
-            Log.i(TAG, "crDroid-style original app icon hooks initialized");
+            iconClass = param.getClassLoader().loadClass(ICON_VIEW);
         } catch (Throwable t) {
-            Log.e(TAG, "Hook initialization failed", t);
+            Log.e(TAG, "StatusBarIconView class not found", t);
+            return;
         }
+
+        installStaticColorHook(iconClass);
+        installUpdateColorHook(iconClass);
+        installContrastedColorHook(iconClass);
+        Log.i(TAG, "Hook initialization finished");
     }
 
-    /**
-     * Mirrors crDroid 8 StatusBarIconView.getIcon(): use the application's
-     * launcher icon instead of StatusBarIcon.icon for non-SystemUI packages.
-     * The caller's existing ScalingDrawableWrapper remains in effect because
-     * this hook replaces only the return value of getIcon().
-     */
-    private void installOriginalApplicationIconHook(Class<?> iconClass,
-            ClassLoader loader) {
+    private void installStaticColorHook(Class<?> iconClass) {
         try {
-            Class<?> statusBarIconClass = loader.loadClass(STATUS_BAR_ICON);
-            Method method = findMethod(iconClass, "getIcon",
-                    Context.class, Context.class, statusBarIconClass);
-            if (method == null) throw new NoSuchMethodException(
-                    "getIcon(Context, Context, StatusBarIcon)");
+            Field field = findField(iconClass, "NO_COLOR");
+            if (field == null) throw new NoSuchFieldException("NO_COLOR");
+            field.setAccessible(true);
+            final int noColor = field.getInt(null);
+
+            Method method = findMethod(iconClass, "setStaticDrawableColor", int.class);
+            if (method == null) throw new NoSuchMethodException("setStaticDrawableColor(int)");
             method.setAccessible(true);
 
-            hook(method).setId("aquosr7-crdroid-original-app-icon")
+            hook(method).setId("aquosr7-third-party-no-color")
                     .intercept(chain -> {
-                        java.util.List<?> args = chain.getArgs();
-                        if (args == null || args.size() < 3
-                                || !(args.get(1) instanceof Context)) {
-                            return chain.proceed();
-                        }
-
-                        String packageName = readPackageName(args.get(2));
-                        if (packageName == null || isSystemUiPackage(packageName)) {
-                            return chain.proceed();
-                        }
-
-                        try {
-                            Context packageContext = (Context) args.get(1);
-                            Drawable appIcon = packageContext.getPackageManager()
-                                    .getApplicationIcon(packageName);
-                            if (appIcon != null) {
-                                Log.d(TAG, "Using launcher icon for " + packageName);
-                                return appIcon;
-                            }
-                        } catch (Throwable t) {
-                            Log.w(TAG, "Launcher icon unavailable for "
-                                    + packageName + "; using notification icon", t);
-                        }
-                        return chain.proceed();
-                    });
-            Log.i(TAG, "Installed original application icon hook");
-        } catch (Throwable t) {
-            Log.e(TAG, "Could not install original application icon hook", t);
-        }
-    }
-
-    /** Match crDroid's NO_COLOR handling in NotificationIconAreaController
-     * and NotificationIconContainer.
-     */
-    private void installNoTintHooks(Class<?> iconClass) {
-        try {
-            Field noColorField = findField(iconClass, "NO_COLOR");
-            if (noColorField == null) throw new NoSuchFieldException("NO_COLOR");
-            noColorField.setAccessible(true);
-            final int noColor = noColorField.getInt(null);
-
-            Method staticColor = findMethod(iconClass,
-                    "setStaticDrawableColor", int.class);
-            if (staticColor == null) throw new NoSuchMethodException(
-                    "setStaticDrawableColor(int)");
-            staticColor.setAccessible(true);
-            hook(staticColor).setId("aquosr7-crdroid-no-static-tint")
-                    .intercept(chain -> {
-                        if (isThirdPartyView(chain.getThisObject())) {
+                        if (isThirdParty(chain.getThisObject())) {
                             return chain.proceed(new Object[]{noColor});
                         }
                         return chain.proceed();
                     });
-            Log.i(TAG, "Installed setStaticDrawableColor NO_COLOR hook");
-
-            Method imageTint = findMethod(iconClass, "setImageTintList", ColorStateList.class);
-            if (imageTint != null) {
-                imageTint.setAccessible(true);
-                hook(imageTint).setId("aquosr7-crdroid-clear-image-tint").intercept(chain -> {
-                    if (isThirdPartyView(chain.getThisObject())) {
-                        return chain.proceed(new Object[]{null});
-                    }
-                    return chain.proceed();
-                });
-                Log.i(TAG, "Installed setImageTintList(null) hook");
-            } else {
-                Log.w(TAG, "setImageTintList(ColorStateList) not found");
-            }
-
-            Method iconColor = findMethod(iconClass, "setIconColor",
-                    int.class, boolean.class);
-            if (iconColor != null) {
-                iconColor.setAccessible(true);
-                hook(iconColor).setId("aquosr7-crdroid-no-icon-tint")
-                        .intercept(chain -> {
-                            if (isThirdPartyView(chain.getThisObject())) {
-                                java.util.List<?> args = chain.getArgs();
-                                return chain.proceed(new Object[]{noColor, args.get(1)});
-                            }
-                            return chain.proceed();
-                        });
-                Log.i(TAG, "Installed setIconColor NO_COLOR hook");
-            } else {
-                Log.w(TAG, "setIconColor(int, boolean) not present; "
-                        + "static tint hook remains active");
-            }
+            Log.i(TAG, "Installed setStaticDrawableColor hook");
         } catch (Throwable t) {
-            Log.e(TAG, "Could not install no-tint hooks", t);
+            Log.e(TAG, "Could not install setStaticDrawableColor hook", t);
         }
     }
 
-    private static boolean isThirdPartyView(Object view) {
-        if (view == null) return false;
+    private void installUpdateColorHook(Class<?> iconClass) {
+        installPostColorClearHook(iconClass, "updateIconColor",
+                "aquosr7-third-party-clear-icon-color");
+    }
+
+    private void installContrastedColorHook(Class<?> iconClass) {
+        installPostColorClearHook(iconClass, "updateContrastedStaticColor",
+                "aquosr7-third-party-clear-contrasted-color");
+    }
+
+    private void installPostColorClearHook(Class<?> iconClass, String methodName, String hookId) {
         try {
-            Field iconField = findField(view.getClass(), "mIcon");
-            if (iconField == null) return false;
-            iconField.setAccessible(true);
-            Object statusBarIcon = iconField.get(view);
-            String packageName = readPackageName(statusBarIcon);
-            return packageName != null && !isSystemUiPackage(packageName);
+            Method method = findMethod(iconClass, methodName);
+            if (method == null) throw new NoSuchMethodException(methodName + "()");
+            method.setAccessible(true);
+
+            hook(method).setId(hookId).intercept(chain -> {
+                Object view = chain.getThisObject();
+                Object result = chain.proceed();
+                if (isThirdParty(view)) clearImageTint(view);
+                return result;
+            });
+            Log.i(TAG, "Installed " + methodName + " hook");
         } catch (Throwable t) {
-            Log.w(TAG, "Unable to classify StatusBarIconView", t);
-            return false;
+            Log.e(TAG, "Could not install " + methodName + " hook", t);
         }
     }
 
-    private static String readPackageName(Object statusBarIcon) {
-        if (statusBarIcon == null) return null;
+    private static boolean isThirdParty(Object view) {
+        StatusBarNotification sbn = getNotification(view);
+        return sbn != null && sbn.getPackageName() != null
+                && !SYSTEM_UI.equals(sbn.getPackageName());
+    }
+
+    private static StatusBarNotification getNotification(Object view) {
+        if (view == null) return null;
         try {
-            Field pkg = findField(statusBarIcon.getClass(), "pkg");
-            if (pkg == null) return null;
-            pkg.setAccessible(true);
-            Object value = pkg.get(statusBarIcon);
-            return value instanceof String ? (String) value : null;
+            Field f = findField(view.getClass(), "mNotification");
+            if (f == null) return null;
+            f.setAccessible(true);
+            Object value = f.get(view);
+            return value instanceof StatusBarNotification
+                    ? (StatusBarNotification) value : null;
         } catch (Throwable t) {
-            Log.w(TAG, "Unable to read StatusBarIcon.pkg", t);
+            Log.w(TAG, "Unable to read mNotification", t);
             return null;
         }
     }
 
-    private static boolean isSystemUiPackage(String packageName) {
-        return SYSTEM_UI.equals(packageName)
-                || packageName.startsWith(SYSTEM_UI + ".");
+    private static void clearImageTint(Object view) {
+        invokeSingleArg(view, "setColorFilter", ColorFilter.class, null);
+        invokeSingleArg(view, "setImageTintList", ColorStateList.class, null);
     }
 
-    private static Method findMethod(Class<?> type, String name,
-            Class<?>... parameters) {
+    private static void invokeSingleArg(
+            Object target, String name, Class<?> parameterType, Object value) {
+        try {
+            Method method = findMethod(target.getClass(), name, parameterType);
+            if (method != null) {
+                method.setAccessible(true);
+                method.invoke(target, value);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Unable to invoke " + name, t);
+        }
+    }
+
+    private static Method findMethod(Class<?> type, String name, Class<?>... parameters) {
         for (Class<?> c = type; c != null; c = c.getSuperclass()) {
             try {
                 return c.getDeclaredMethod(name, parameters);
