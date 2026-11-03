@@ -159,58 +159,52 @@ public final class Entry extends XposedModule {
         String resourcePackage = null;
         try {
             Field iconField = findField(target.getClass(), "mIcon");
-            if (iconField == null) {
-                Log.w(TAG, "IMS_CHECK: StatusBarIconView.mIcon field not found");
-                return false;
-            }
+            if (iconField == null) return false;
             iconField.setAccessible(true);
             Object statusBarIcon = iconField.get(target);
             if (statusBarIcon == null) return false;
 
             Field drawableField = findField(statusBarIcon.getClass(), "icon");
-            if (drawableField == null) {
-                Log.w(TAG, "IMS_CHECK: StatusBarIcon.icon field not found");
-                return false;
-            }
+            if (drawableField == null) return false;
             drawableField.setAccessible(true);
             Object icon = drawableField.get(statusBarIcon);
             if (icon == null) return false;
 
-            Method getResId = findMethod(icon.getClass(), "getResId");
-            if (getResId == null) {
-                Log.w(TAG, "IMS_CHECK: Icon.getResId() not found; iconClass="
-                        + icon.getClass().getName());
+            // StatusBarIconView also handles app notification icons. Most are
+            // bitmaps/adaptive icons, for which getResId() throws. Check type
+            // first and ignore every non-resource icon without logging noise.
+            Method getType = findMethod(icon.getClass(), "getType");
+            if (getType == null) return false;
+            Object typeValue = getType.invoke(icon);
+            if (!(typeValue instanceof Integer)
+                    || ((Integer) typeValue) != android.graphics.drawable.Icon.TYPE_RESOURCE) {
                 return false;
             }
+
+            Method getResPackage = findMethod(icon.getClass(), "getResPackage");
+            if (getResPackage == null) return false;
+            Object packageValue = getResPackage.invoke(icon);
+            if (!(packageValue instanceof String)) return false;
+            resourcePackage = (String) packageValue;
+
+            // The four target drawables belong to SystemUI. Do not attempt to
+            // resolve foreign application resource IDs in SystemUI Resources.
+            if (!SYSTEM_UI.equals(resourcePackage)) return false;
+
+            Method getResId = findMethod(icon.getClass(), "getResId");
+            if (getResId == null) return false;
             Object value = getResId.invoke(icon);
             if (!(value instanceof Integer) || ((Integer) value) == 0) return false;
 
-            Method getResPackage = findMethod(icon.getClass(), "getResPackage");
-            if (getResPackage != null) {
-                Object packageValue = getResPackage.invoke(icon);
-                if (packageValue instanceof String) {
-                    resourcePackage = (String) packageValue;
-                }
-            }
-
             View view = (View) target;
-            try {
-                resourceName = view.getResources().getResourceName((Integer) value);
-            } catch (Throwable lookupError) {
-                Log.w(TAG, "IMS_CHECK: resource ID cannot be resolved by SystemUI Resources; id=0x"
-                        + Integer.toHexString((Integer) value)
-                        + " package=" + resourcePackage, lookupError);
-                return false;
-            }
+            android.content.res.Resources ownerResources = view.getContext()
+                    .getPackageManager().getResourcesForApplication(SYSTEM_UI);
+            resourceName = ownerResources.getResourceName((Integer) value);
 
-            boolean systemUiResource = resourceName.startsWith("com.android.systemui:");
-            boolean expectedPackage = resourcePackage == null
-                    || SYSTEM_UI.equals(resourcePackage);
-            boolean match = systemUiResource && expectedPackage
-                    && (resourceName.endsWith(":drawable/ic_volte_tw")
-                    || resourceName.endsWith(":drawable/ic_vowifi_tw")
-                    || resourceName.endsWith(":drawable/ic_vowifi_tw1")
-                    || resourceName.endsWith(":drawable/ic_vowifi_tw2"));
+            boolean match = resourceName.equals("com.android.systemui:drawable/ic_volte_tw")
+                    || resourceName.equals("com.android.systemui:drawable/ic_vowifi_tw")
+                    || resourceName.equals("com.android.systemui:drawable/ic_vowifi_tw1")
+                    || resourceName.equals("com.android.systemui:drawable/ic_vowifi_tw2");
 
             if (match) {
                 Log.i(TAG, "IMS_NATIVE_ICON_MATCH resource=" + resourceName
@@ -219,7 +213,8 @@ public final class Entry extends XposedModule {
             return match;
         } catch (Throwable error) {
             Log.w(TAG, "IMS_CHECK failed resource=" + resourceName
-                    + " package=" + resourcePackage, error);
+                    + " package=" + resourcePackage
+                    + " error=" + error.getClass().getSimpleName());
             return false;
         }
     }
