@@ -63,7 +63,7 @@ echo "$KERNEL_RELEASE" | tee test-results/kernel-release.txt
 # The AVD uses its own android14-6.1 KMI. The phone's android12-5.10 KMI
 # is validated separately on the physical device and must not gate this AVD test.
 if [[ ! "$KERNEL_RELEASE" =~ ^6\.1\.[0-9]+-android14- ]]; then
-  echo "Kernel KMI mismatch: expected Android 14 AVD kernel 6.6.x-android15; got $KERNEL_RELEASE" | tee test-results/status.txt
+  echo "Kernel KMI mismatch: expected Android 14 AVD kernel 6.1.x-android14; got $KERNEL_RELEASE" | tee test-results/status.txt
   exit 1
 fi
 echo "AVD kernel release family check passed: android14-6.1" | tee test-results/kmi-check.txt
