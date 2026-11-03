@@ -28,6 +28,7 @@ import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 public final class Entry extends XposedModule {
     private static final String TAG = "AQUOSR7ColoredNotifications";
     private static final String SYSTEM_UI = "com.android.systemui";
+    private static final String NETSPEED_PACKAGE = "com.nisargjhaveri.netspeed";
     private static final String ICON_VIEW =
             "com.android.systemui.statusbar.StatusBarIconView";
     private static final String IMS_TINT_COLLECTOR =
@@ -78,7 +79,11 @@ public final class Entry extends XposedModule {
                 }
 
                 String packageName = notification.getPackageName();
-                if (packageName == null || SYSTEM_UI.equals(packageName)) {
+                if (packageName == null || SYSTEM_UI.equals(packageName)
+                        || NETSPEED_PACKAGE.equals(packageName)) {
+                    if (NETSPEED_PACKAGE.equals(packageName)) {
+                        Log.i(TAG, "NETSPEED_ICON_PRESERVED package=" + packageName);
+                    }
                     return notificationDrawable;
                 }
 
