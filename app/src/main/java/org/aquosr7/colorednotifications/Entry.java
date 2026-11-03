@@ -9,6 +9,8 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 import io.github.libxposed.api.XposedModule;
+import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
+import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 
 /**
@@ -22,7 +24,18 @@ public final class Entry extends XposedModule {
             "com.android.systemui.statusbar.StatusBarIconView";
 
     @Override
+    public void onModuleLoaded(ModuleLoadedParam param) {
+        Log.i(TAG, "MODULE_LOADED process=" + param.getProcessName());
+    }
+
+    @Override
+    public void onPackageLoaded(PackageLoadedParam param) {
+        Log.i(TAG, "PACKAGE_LOADED package=" + param.getPackageName());
+    }
+
+    @Override
     public void onPackageReady(PackageReadyParam param) {
+        Log.i(TAG, "PACKAGE_READY package=" + param.getPackageName());
         if (!SYSTEM_UI.equals(param.getPackageName())) return;
 
         final Class<?> iconClass;
