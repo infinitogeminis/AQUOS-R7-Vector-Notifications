@@ -81,8 +81,10 @@ timeout 20s adb shell /data/local/tmp/ksud --version | tee test-results/ksud-ver
 stage "VERIFY_KERNELSU_KMI_ASSET_SUPPORT"
 timeout 20s adb shell /data/local/tmp/ksud boot-info current-kmi | tee test-results/kernelsu-current-kmi.txt
 timeout 20s adb shell /data/local/tmp/ksud boot-info supported-kmis | tee test-results/kernelsu-supported-kmis.txt
+# The running kernel KMI is derived from uname above. "current-kmi" is
+# KernelSU's own current/default KMI state and may differ on a clean AVD;
+# it is diagnostic only. Gate activation on the required KMI being supported.
 grep -Fxq "android14-6.1" test-results/kernelsu-supported-kmis.txt
-grep -Fxq "android14-6.1" test-results/kernelsu-current-kmi.txt
 
 stage "ACTIVATE_KERNELSU_USING_OFFICIAL_LATE_LOAD"
 # late-load performs LKM loading, userspace installation, module lifecycle setup,
