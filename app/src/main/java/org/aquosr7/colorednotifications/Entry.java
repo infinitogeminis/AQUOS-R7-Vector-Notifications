@@ -124,6 +124,12 @@ public final class Entry extends XposedModule {
             }
             hook(method).setId(hookId).intercept(chain -> {
                 Object target = chain.getThisObject();
+                if (isNativeImsIcon(target)) {
+                    if ("updateIconColor".equals(name)) {
+                        clearDrawableColorFilter(target);
+                    }
+                    return null;
+                }
                 if (!isThirdPartyNotification(target)) {
                     return chain.proceed();
                 }
@@ -138,6 +144,47 @@ public final class Entry extends XposedModule {
             Log.i(TAG, "Installed " + name);
         } catch (Throwable error) {
             Log.e(TAG, "Cannot install color hook " + name, error);
+        }
+    }
+
+
+    /**
+     * Identify Sharp's native IMS status icons from the actual StatusBarIcon
+     * resource, not from guessed slot names. The firmware's selected drawable
+     * is preserved (including tw1/tw2 SIM selection); only tint mutations are
+     * skipped for these four known resource entry names.
+     */
+    private static boolean isNativeImsIcon(Object target) {
+        if (target == null) return false;
+        try {
+            Field iconField = findField(target.getClass(), "mIcon");
+            if (iconField == null) return false;
+            iconField.setAccessible(true);
+            Object statusBarIcon = iconField.get(target);
+            if (statusBarIcon == null) return false;
+
+            Field drawableField = findField(statusBarIcon.getClass(), "icon");
+            if (drawableField == null) return false;
+            drawableField.setAccessible(true);
+            Object icon = drawableField.get(statusBarIcon);
+            if (icon == null) return false;
+
+            Method getResId = findMethod(icon.getClass(), "getResId");
+            if (getResId == null) return false;
+            Object value = getResId.invoke(icon);
+            if (!(value instanceof Integer) || ((Integer) value) == 0) return false;
+
+            View view = (View) target;
+            String entry = view.getResources().getResourceEntryName((Integer) value);
+            boolean match = "ic_volte_tw".equals(entry)
+                    || "ic_vowifi_tw".equals(entry)
+                    || "ic_vowifi_tw1".equals(entry)
+                    || "ic_vowifi_tw2".equals(entry);
+            if (match) Log.i(TAG, "Preserving native IMS drawable colors: " + entry);
+            return match;
+        } catch (Throwable error) {
+            // Fail open: unknown icons retain the stock SystemUI tint path.
+            return false;
         }
     }
 
