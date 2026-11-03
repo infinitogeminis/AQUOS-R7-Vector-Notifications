@@ -58,19 +58,19 @@ public final class Entry extends XposedModule {
 
             hook(method).setId("aquosr7-crdroid-original-app-icon")
                     .intercept(chain -> {
-                        Object[] args = chain.getArgs();
-                        if (args == null || args.length < 3
-                                || !(args[1] instanceof Context)) {
+                        java.util.List<?> args = chain.getArgs();
+                        if (args == null || args.size() < 3
+                                || !(args.get(1) instanceof Context)) {
                             return chain.proceed();
                         }
 
-                        String packageName = readPackageName(args[2]);
+                        String packageName = readPackageName(args.get(2));
                         if (packageName == null || isSystemUiPackage(packageName)) {
                             return chain.proceed();
                         }
 
                         try {
-                            Context packageContext = (Context) args[1];
+                            Context packageContext = (Context) args.get(1);
                             Drawable appIcon = packageContext.getPackageManager()
                                     .getApplicationIcon(packageName);
                             if (appIcon != null) {
@@ -120,8 +120,8 @@ public final class Entry extends XposedModule {
                 hook(iconColor).setId("aquosr7-crdroid-no-icon-tint")
                         .intercept(chain -> {
                             if (isThirdPartyView(chain.getThisObject())) {
-                                Object[] args = chain.getArgs();
-                                return chain.proceed(new Object[]{noColor, args[1]});
+                                java.util.List<?> args = chain.getArgs();
+                                return chain.proceed(new Object[]{noColor, args.get(1)});
                             }
                             return chain.proceed();
                         });
