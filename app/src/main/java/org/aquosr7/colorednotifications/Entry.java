@@ -217,7 +217,7 @@ public final class Entry extends XposedModule {
             int changed = recolorVectorNode(drawable, 0);
             if (changed > 0) {
                 imageView.setImageDrawable(drawable);
-                Log.i(TAG, "NATIVE_IMS_RED_TUNED paths=" + changed + " target=#FF944949");
+                Log.i(TAG, "NATIVE_IMS_RED_TUNED paths=" + changed + " target=#FF9A4F4F");
             } else {
                 Log.w(TAG, "NATIVE_IMS_RED_NOT_FOUND drawable=" + drawable.getClass().getName());
             }
@@ -273,7 +273,7 @@ public final class Entry extends XposedModule {
         if (valueField == null || valueField.getType() != int.class) return 0;
         valueField.setAccessible(true);
         if (valueField.getInt(complexColor) != 0xFF8C4141) return 0;
-        valueField.setInt(complexColor, 0xFF944949);
+        valueField.setInt(complexColor, 0xFF9A4F4F);
         return 1;
     }
 
