@@ -4,10 +4,9 @@ import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.ColorFilter;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.ScaleDrawable;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
-import android.view.Gravity;
+import android.view.View;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import io.github.libxposed.api.XposedModule;
@@ -19,7 +18,6 @@ public final class Entry extends XposedModule {
  private static final String TAG="AQUOSR7ColoredNotifications";
  private static final String SYSTEM_UI="com.android.systemui";
  private static final String ICON_VIEW="com.android.systemui.statusbar.StatusBarIconView";
- private static final float APP_ICON_SCALE=0.78f;
  @Override public void onModuleLoaded(ModuleLoadedParam p){Log.i(TAG,"MODULE_LOADED process="+p.getProcessName());}
  @Override public void onPackageLoaded(PackageLoadedParam p){Log.i(TAG,"PACKAGE_LOADED package="+p.getPackageName());}
  @Override public void onPackageReady(PackageReadyParam p){
@@ -45,11 +43,9 @@ public final class Entry extends XposedModule {
     StatusBarNotification n=getNotification(view);
     if(stock==null||n==null||n.getPackageName()==null||SYSTEM_UI.equals(n.getPackageName()))return stock;
     try{
-     Drawable app=((Context)view).getPackageManager().getApplicationIcon(n.getPackageName());
-     ScaleDrawable scaled=new ScaleDrawable(app,Gravity.CENTER,APP_ICON_SCALE,APP_ICON_SCALE);
-     scaled.setLevel(10000);
-     Log.d(TAG,"APP_ICON_REPLACED "+n.getPackageName());
-     return scaled;
+     Drawable app=((View)view).getContext().getPackageManager().getApplicationIcon(n.getPackageName());
+     Log.d(TAG,"APP_ICON_REPLACED_NATIVE_BOUNDS "+n.getPackageName()+" intrinsic="+app.getIntrinsicWidth()+"x"+app.getIntrinsicHeight());
+     return app;
     }catch(PackageManager.NameNotFoundException e){Log.w(TAG,"App icon not found: "+n.getPackageName(),e);return stock;}
     catch(Throwable t){Log.e(TAG,"App icon replacement failed: "+n.getPackageName(),t);return stock;}
    });
