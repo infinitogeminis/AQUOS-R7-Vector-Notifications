@@ -55,7 +55,6 @@ public final class Entry extends XposedModule {
             installApplicationIconHook(iconView);
             installColorPreservationHooks(iconView);
             installNativeImsTintHook(param.getClassLoader());
-            installNativeImsRedTuningHook();
             Log.i(TAG, "SystemUI hooks initialized");
         } catch (Throwable error) {
             Log.e(TAG, "SystemUI hook initialization failed", error);
@@ -208,15 +207,6 @@ public final class Entry extends XposedModule {
         } catch (Throwable error) {
             Log.e(TAG, "Cannot install native IMS tint hook", error);
         }
-    }
-
-
-    /**
-     * Slightly lifts only Sharp's original brick-red vector paths.
-     * Geometry, alpha and all non-red fills remain unchanged.
-     */
-    private void installNativeImsRedTuningHook() {
-        Log.i(TAG, "Native IMS red tuning armed target=#FF944949 source=#FF8C4141");
     }
 
     private static void recolorNativeImsVector(ImageView imageView) {
