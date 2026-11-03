@@ -1,104 +1,203 @@
 package org.aquosr7.colorednotifications;
-import android.content.Context;
+
 import android.content.pm.PackageManager;
-import android.content.res.ColorStateList;
-import android.graphics.ColorFilter;
 import android.graphics.drawable.Drawable;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 import android.view.View;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 
+/**
+ * Replaces only third-party notification status-bar glyphs with their package
+ * launcher icon. The existing StatusBarIconView remains responsible for
+ * measuring and drawing the drawable at AQUOS R7's native notification size.
+ */
 public final class Entry extends XposedModule {
- private static final String TAG="AQUOSR7ColoredNotifications";
- private static final String SYSTEM_UI="com.android.systemui";
- private static final String ICON_VIEW="com.android.systemui.statusbar.StatusBarIconView";
- @Override public void onModuleLoaded(ModuleLoadedParam p){Log.i(TAG,"MODULE_LOADED process="+p.getProcessName());}
- @Override public void onPackageLoaded(PackageLoadedParam p){Log.i(TAG,"PACKAGE_LOADED package="+p.getPackageName());}
- @Override public void onPackageReady(PackageReadyParam p){
-  Log.i(TAG,"PACKAGE_READY package="+p.getPackageName());
-  if(!SYSTEM_UI.equals(p.getPackageName()))return;
-  try{
-   Class<?> c=p.getClassLoader().loadClass(ICON_VIEW);
-   installApplicationIconHook(c);
-   installColorHooks(c);
-   Log.i(TAG,"Initialization finished");
-  }catch(Throwable t){Log.e(TAG,"SystemUI hook initialization failed",t);}
- }
- // Exact Android 14 AQUOS R7 DEX signature: getIcon(StatusBarIcon): Drawable.
- private void installApplicationIconHook(Class<?> c){
-  try{
-   Class<?> icon=c.getClassLoader().loadClass("com.android.internal.statusbar.StatusBarIcon");
-   Method m=findMethod(c,"getIcon",icon);
-   if(m==null)throw new NoSuchMethodException("getIcon(StatusBarIcon)");
-   m.setAccessible(true);
-   hook(m).setId("aquosr7-original-app-icon").intercept(chain->{
-    Drawable stock=(Drawable)chain.proceed();
-    Object view=chain.getThisObject();
-    StatusBarNotification n=getNotification(view);
-    if(stock==null||n==null||n.getPackageName()==null||SYSTEM_UI.equals(n.getPackageName()))return stock;
-    try{
-     Drawable app=((View)view).getContext().getPackageManager().getApplicationIcon(n.getPackageName());
-     Log.d(TAG,"APP_ICON_REPLACED_NATIVE_BOUNDS "+n.getPackageName()+" intrinsic="+app.getIntrinsicWidth()+"x"+app.getIntrinsicHeight());
-     return app;
-    }catch(PackageManager.NameNotFoundException e){Log.w(TAG,"App icon not found: "+n.getPackageName(),e);return stock;}
-    catch(Throwable t){Log.e(TAG,"App icon replacement failed: "+n.getPackageName(),t);return stock;}
-   });
-   Log.i(TAG,"Installed getIcon(StatusBarIcon)");
-  }catch(Throwable t){Log.e(TAG,"Cannot install application icon hook",t);}
- }
- private void installColorHooks(Class<?> c){
-  try{
-   Field f=findField(c,"NO_COLOR");if(f==null)throw new NoSuchFieldException("NO_COLOR");
-   f.setAccessible(true);final int noColor=f.getInt(null);
-   Method m=findMethod(c,"setStaticDrawableColor",int.class);
-   if(m==null)throw new NoSuchMethodException("setStaticDrawableColor(int)");
-   m.setAccessible(true);
-   hook(m).setId("aquosr7-no-static-app-tint").intercept(ch->isApp(ch.getThisObject())?ch.proceed(new Object[]{noColor}):ch.proceed());
-   Log.i(TAG,"Installed setStaticDrawableColor");
-  }catch(Throwable t){Log.e(TAG,"setStaticDrawableColor hook failed",t);}
-  try{
-   Method m=findMethod(c,"setIconColor",int.class,boolean.class);
-   if(m==null)throw new NoSuchMethodException("setIconColor(int,boolean)");
-   Field f=findField(c,"NO_COLOR");if(f==null)throw new NoSuchFieldException("NO_COLOR");
-   f.setAccessible(true);final int noColor=f.getInt(null);m.setAccessible(true);
-   hook(m).setId("aquosr7-no-app-icon-color").intercept(ch->isApp(ch.getThisObject())?ch.proceed(new Object[]{noColor,false}):ch.proceed());
-   Log.i(TAG,"Installed setIconColor");
-  }catch(Throwable t){Log.e(TAG,"setIconColor hook failed",t);}
-  for(String name:new String[]{"updateIconColor","updateContrastedStaticColor"}){
-   try{
-    Method m=findMethod(c,name);if(m==null)throw new NoSuchMethodException(name);
-    m.setAccessible(true);
-    hook(m).setId("aquosr7-clear-"+name).intercept(ch->{Object v=ch.getThisObject();Object r=ch.proceed();if(isApp(v))clearTint(v);return r;});
-    Log.i(TAG,"Installed "+name);
-   }catch(Throwable t){Log.e(TAG,"Tint hook failed: "+name,t);}
-  }
- }
- private static boolean isApp(Object v){StatusBarNotification n=getNotification(v);return n!=null&&n.getPackageName()!=null&&!SYSTEM_UI.equals(n.getPackageName());}
- private static StatusBarNotification getNotification(Object v){
-  if(v==null)return null;
-  try{Field f=findField(v.getClass(),"mNotification");if(f==null)return null;f.setAccessible(true);Object x=f.get(v);return x instanceof StatusBarNotification?(StatusBarNotification)x:null;}
-  catch(Throwable t){Log.w(TAG,"Cannot read mNotification",t);return null;}
- }
- private static void clearTint(Object v){
-  invoke(v,"setColorFilter",ColorFilter.class,null);
-  invoke(v,"setImageTintList",ColorStateList.class,null);
- }
- private static void invoke(Object v,String n,Class<?> p,Object x){
-  try{Method m=findMethod(v.getClass(),n,p);if(m!=null){m.setAccessible(true);m.invoke(v,x);}}
-  catch(Throwable t){Log.w(TAG,"Cannot invoke "+n,t);}
- }
- private static Method findMethod(Class<?> c,String n,Class<?>...p){
-  for(Class<?> x=c;x!=null;x=x.getSuperclass())try{return x.getDeclaredMethod(n,p);}catch(NoSuchMethodException ignored){}
-  return null;
- }
- private static Field findField(Class<?> c,String n){
-  for(Class<?> x=c;x!=null;x=x.getSuperclass())try{return x.getDeclaredField(n);}catch(NoSuchFieldException ignored){}
-  return null;
- }
+    private static final String TAG = "AQUOSR7ColoredNotifications";
+    private static final String SYSTEM_UI = "com.android.systemui";
+    private static final String ICON_VIEW =
+            "com.android.systemui.statusbar.StatusBarIconView";
+
+    @Override
+    public void onModuleLoaded(ModuleLoadedParam param) {
+        Log.i(TAG, "MODULE_LOADED process=" + param.getProcessName());
+    }
+
+    @Override
+    public void onPackageLoaded(PackageLoadedParam param) {
+        Log.i(TAG, "PACKAGE_LOADED package=" + param.getPackageName());
+    }
+
+    @Override
+    public void onPackageReady(PackageReadyParam param) {
+        Log.i(TAG, "PACKAGE_READY package=" + param.getPackageName());
+        if (!SYSTEM_UI.equals(param.getPackageName())) return;
+
+        try {
+            Class<?> iconView = param.getClassLoader().loadClass(ICON_VIEW);
+            installApplicationIconHook(iconView);
+            installColorPreservationHooks(iconView);
+            Log.i(TAG, "SystemUI hooks initialized");
+        } catch (Throwable error) {
+            Log.e(TAG, "SystemUI hook initialization failed", error);
+        }
+    }
+
+    private void installApplicationIconHook(Class<?> iconView) {
+        try {
+            Class<?> statusBarIcon = iconView.getClassLoader()
+                    .loadClass("com.android.internal.statusbar.StatusBarIcon");
+            Method method = findMethod(iconView, "getIcon", statusBarIcon);
+            if (method == null) throw new NoSuchMethodException("getIcon(StatusBarIcon)");
+
+            hook(method).setId("aquosr7-original-application-icon").intercept(chain -> {
+                Drawable notificationDrawable = (Drawable) chain.proceed();
+                Object target = chain.getThisObject();
+                StatusBarNotification notification = getNotification(target);
+
+                if (notificationDrawable == null || notification == null) {
+                    return notificationDrawable;
+                }
+
+                String packageName = notification.getPackageName();
+                if (packageName == null || SYSTEM_UI.equals(packageName)) {
+                    return notificationDrawable;
+                }
+
+                try {
+                    View view = (View) target;
+                    Drawable applicationIcon = view.getContext()
+                            .getPackageManager().getApplicationIcon(packageName);
+                    if (applicationIcon == null) return notificationDrawable;
+
+                    Log.i(TAG, "APP_ICON_REPLACED package=" + packageName
+                            + " intrinsic=" + applicationIcon.getIntrinsicWidth()
+                            + "x" + applicationIcon.getIntrinsicHeight());
+                    return applicationIcon;
+                } catch (PackageManager.NameNotFoundException error) {
+                    Log.w(TAG, "No launcher icon for " + packageName
+                            + "; keeping notification icon", error);
+                    return notificationDrawable;
+                } catch (Throwable error) {
+                    Log.e(TAG, "Application icon replacement failed for "
+                            + packageName, error);
+                    return notificationDrawable;
+                }
+            });
+            Log.i(TAG, "Installed getIcon(StatusBarIcon)");
+        } catch (Throwable error) {
+            Log.e(TAG, "Cannot install application icon hook", error);
+        }
+    }
+
+    /**
+     * Sharp's StatusBarIconView has no crDroid NO_COLOR/mNewIconStyle fields.
+     * Therefore do not pass a guessed sentinel value: skip only the color
+     * mutation methods for third-party notification views. SystemUI icons
+     * continue through the original methods unchanged.
+     */
+    private void installColorPreservationHooks(Class<?> iconView) {
+        hookAppOnly(iconView, "setStaticDrawableColor", new Class<?>[]{int.class},
+                "aquosr7-preserve-static-color");
+        hookAppOnly(iconView, "setIconColor",
+                new Class<?>[]{int.class, boolean.class},
+                "aquosr7-preserve-animated-color");
+        hookAppOnly(iconView, "updateContrastedStaticColor", new Class<?>[]{},
+                "aquosr7-preserve-contrast-color");
+        hookAppOnly(iconView, "updateIconColor", new Class<?>[]{},
+                "aquosr7-preserve-drawable-color");
+    }
+
+    private void hookAppOnly(Class<?> type, String name, Class<?>[] parameters,
+                             String hookId) {
+        try {
+            Method method = findMethod(type, name, parameters);
+            if (method == null) {
+                throw new NoSuchMethodException(name);
+            }
+            hook(method).setId(hookId).intercept(chain -> {
+                Object target = chain.getThisObject();
+                if (!isThirdPartyNotification(target)) {
+                    return chain.proceed();
+                }
+
+                // updateIconColor normally installs a ColorFilter. Clear any
+                // previous filter and suppress future monochrome conversion.
+                if ("updateIconColor".equals(name)) {
+                    clearDrawableColorFilter(target);
+                }
+                return null;
+            });
+            Log.i(TAG, "Installed " + name);
+        } catch (Throwable error) {
+            Log.e(TAG, "Cannot install color hook " + name, error);
+        }
+    }
+
+    private static boolean isThirdPartyNotification(Object target) {
+        StatusBarNotification notification = getNotification(target);
+        return notification != null
+                && notification.getPackageName() != null
+                && !SYSTEM_UI.equals(notification.getPackageName());
+    }
+
+    private static StatusBarNotification getNotification(Object target) {
+        if (target == null) return null;
+        try {
+            Field field = findField(target.getClass(), "mNotification");
+            if (field == null) return null;
+            field.setAccessible(true);
+            Object value = field.get(target);
+            return value instanceof StatusBarNotification
+                    ? (StatusBarNotification) value : null;
+        } catch (Throwable error) {
+            Log.w(TAG, "Cannot read StatusBarIconView.mNotification", error);
+            return null;
+        }
+    }
+
+    private static void clearDrawableColorFilter(Object target) {
+        try {
+            Method method = findMethod(target.getClass(), "setColorFilter",
+                    android.graphics.ColorFilter.class);
+            if (method != null) {
+                method.setAccessible(true);
+                method.invoke(target, new Object[]{null});
+            }
+        } catch (Throwable error) {
+            Log.w(TAG, "Cannot clear notification drawable color filter", error);
+        }
+    }
+
+    private static Method findMethod(Class<?> type, String name,
+                                     Class<?>... parameters) {
+        for (Class<?> current = type; current != null;
+             current = current.getSuperclass()) {
+            try {
+                return current.getDeclaredMethod(name, parameters);
+            } catch (NoSuchMethodException ignored) {
+                // Continue through the superclass chain.
+            }
+        }
+        return null;
+    }
+
+    private static Field findField(Class<?> type, String name) {
+        for (Class<?> current = type; current != null;
+             current = current.getSuperclass()) {
+            try {
+                return current.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+                // Continue through the superclass chain.
+            }
+        }
+        return null;
+    }
 }
