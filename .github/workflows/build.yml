@@ -2,7 +2,13 @@ name: Build AQUOS R7 Vector module
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, test/android14-avd-smoke ]
+    paths:
+      - app/**
+      - build.gradle
+      - settings.gradle
+      - gradle.properties
+      - .github/workflows/build.yml
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,10 +26,38 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-      - name: Build debug APK
+      - name: Build colored notification icon module
         run: gradle --no-daemon :app:assembleDebug
+      - name: Assemble combined Vector installation bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/AQUOS-R7-Colored-Icons
+          cp app/build/outputs/apk/debug/app-debug.apk dist/AQUOS-R7-Colored-Icons/AQUOS-R7-Colored-Notifications.apk
+          curl -fL --retry 3 https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o dist/AQUOS-R7-Colored-Icons/Vector-Framework-KernelSU.zip
+          cat > dist/AQUOS-R7-Colored-Icons/INSTALL_RU.txt <<'EOF'
+          AQUOS R7 — цветные иконки уведомлений
+
+          Состав:
+          1. Vector-Framework-KernelSU.zip — фреймворк Vector для KernelSU.
+          2. AQUOS-R7-Colored-Notifications.apk — наш модуль цветных иконок.
+
+          Установка:
+          1. Установить Vector-Framework-KernelSU.zip через KernelSU и перезагрузить устройство, если этого требует KernelSU.
+          2. Установить AQUOS-R7-Colored-Notifications.apk как приложение.
+          3. Открыть Vector, активировать AQUOS R7 Colored Notifications и оставить область действия com.android.systemui.
+          4. Перезагрузить устройство.
+
+          Важно: модуль использует libxposed API 102 и рассчитан на Vector. Это не самостоятельный KernelSU-модуль.
+          SystemUI.apk и системные разделы не патчатся. Совместимость и визуальный результат должны быть проверены на физическом AQUOS R7.
+          EOF
+          (cd dist && zip -qr AQUOS-R7-Colored-Icons-Vector-Bundle.zip AQUOS-R7-Colored-Icons)
+          sha256sum dist/AQUOS-R7-Colored-Icons/* dist/AQUOS-R7-Colored-Icons-Vector-Bundle.zip | tee dist/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: AQUOS-R7-Colored-Notifications-Vector-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: AQUOS-R7-Colored-Icons-Vector-Bundle
+          path: |
+            dist/AQUOS-R7-Colored-Icons-Vector-Bundle.zip
+            dist/AQUOS-R7-Colored-Icons/
+            app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
