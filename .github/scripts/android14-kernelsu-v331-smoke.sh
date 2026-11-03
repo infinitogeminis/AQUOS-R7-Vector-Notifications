@@ -131,3 +131,5 @@ timeout 20s adb exec-out screencap -p > test-results/android14-kernelsu-screen.p
 } | tee test-results/status.txt
 
 stage "TEST_FINISHED_SUCCESSFULLY"
+
+# Trigger-only commit marker; no runtime behavior change.
