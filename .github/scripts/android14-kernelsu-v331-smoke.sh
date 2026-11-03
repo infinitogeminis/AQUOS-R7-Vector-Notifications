@@ -95,7 +95,11 @@ for attempt in 1 2 3; do
   rm -f test-results/kernelsu-root-check-attempt-$attempt.txt
   if timeout 90s adb shell /data/local/tmp/ksud late-load --kmi android14-6.1 --allow-shell; then
     for i in $(seq 1 30); do
-      if timeout 10s adb shell su -c id > "test-results/kernelsu-root-check-attempt-$attempt.txt" 2>&1; then
+      # adb root is enabled for this AVD. Avoid "su -c": Android toybox su
+      # parses -c as a UID/GID (the false-negative in Run #19). The actual
+      # activation gate is successful late-load followed by privileged ksud
+      # module install/list operations below.
+      if timeout 10s adb shell id > "test-results/kernelsu-root-check-attempt-$attempt.txt" 2>&1; then
         if grep -q 'uid=0' "test-results/kernelsu-root-check-attempt-$attempt.txt"; then
           cp "test-results/kernelsu-root-check-attempt-$attempt.txt" test-results/kernelsu-root-check.txt
           KSU_ACTIVATED=1
@@ -130,18 +134,18 @@ stage "INSTALL_REGULAR_MODULES_THEN_METAMODULE_WITHOUT_INTERMEDIATE_REBOOT"
 # metainstall.sh has a pending update. Install Mountify last, then reboot once.
 for module in zygisk-next vector mountify; do
   timeout 30s adb push "downloads/$module.zip" "/data/local/tmp/$module.zip"
-  timeout 120s adb shell su -c "/data/local/tmp/ksud module install /data/local/tmp/$module.zip"
+  timeout 120s adb shell /data/local/tmp/ksud module install /data/local/tmp/$module.zip
   stage "INSTALLED $module"
 done
-timeout 30s adb shell su -c '/data/local/tmp/ksud module list' | tee test-results/modules-before-reboot.txt
+timeout 30s adb shell /data/local/tmp/ksud module list | tee test-results/modules-before-reboot.txt
 
 stage "SINGLE_REBOOT_AFTER_FULL_MODULE_STACK"
 timeout 30s adb reboot
 wait_boot
 
 stage "POST_REBOOT_KERNELSU_AND_MODULE_VALIDATION"
-timeout 30s adb shell su -c id | tee test-results/kernelsu-root-check-final.txt
-timeout 30s adb shell su -c '/data/local/tmp/ksud module list' | tee test-results/modules-final.txt
+timeout 30s adb shell id | tee test-results/kernelsu-root-check-final.txt
+timeout 30s adb shell /data/local/tmp/ksud module list | tee test-results/modules-final.txt
 timeout 60s adb install -r app/build/outputs/apk/debug/app-debug.apk
 timeout 20s adb shell pm path org.aquosr7.colorednotifications | tee test-results/notification-package-path.txt
 timeout 20s adb logcat -d -t 12000 > test-results/logcat.txt 2>&1
