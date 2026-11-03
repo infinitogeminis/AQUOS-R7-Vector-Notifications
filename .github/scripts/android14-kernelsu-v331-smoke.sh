@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# GitHub Actions steps run in separate shells. Reconstruct the Android SDK
+# environment here instead of relying on PATH exported by the emulator step.
+export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/cmdline-tools/16.0/bin:$PATH"
+
+for required_command in adb timeout; do
+  if ! command -v "$required_command" >/dev/null 2>&1; then
+    echo "Required command not found in PATH: $required_command" >&2
+    echo "PATH=$PATH" >&2
+    exit 127
+  fi
+done
+
 mkdir -p test-results
 exec > >(tee -a test-results/emulator-session.log) 2>&1
 
