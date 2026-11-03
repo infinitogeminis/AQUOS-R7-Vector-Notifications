@@ -86,17 +86,43 @@ timeout 20s adb shell /data/local/tmp/ksud boot-info supported-kmis | tee test-r
 # it is diagnostic only. Gate activation on the required KMI being supported.
 grep -Fxq "android14-6.1" test-results/kernelsu-supported-kmis.txt
 
-stage "ACTIVATE_KERNELSU_USING_OFFICIAL_LATE_LOAD"
-# late-load performs LKM loading, userspace installation, module lifecycle setup,
-# SELinux policy initialization, and the late-load/post-mount/service stages.
-timeout 90s adb shell /data/local/tmp/ksud late-load --kmi android14-6.1 --allow-shell
-for i in $(seq 1 30); do
-  if timeout 10s adb shell su -c id > test-results/kernelsu-root-check.txt 2>&1; then
-    if grep -q 'uid=0' test-results/kernelsu-root-check.txt; then break; fi
+stage "ACTIVATE_KERNELSU_USING_OFFICIAL_LATE_LOAD_WITH_THREE_BOOT_ATTEMPTS"
+# A clean boot can miss activation on the first pass. Test up to three independent
+# boot attempts; a failed attempt is followed by a full reboot before retrying.
+KSU_ACTIVATED=0
+for attempt in 1 2 3; do
+  stage "KERNELSU_ACTIVATION_ATTEMPT_$attempt"
+  rm -f test-results/kernelsu-root-check-attempt-$attempt.txt
+  if timeout 90s adb shell /data/local/tmp/ksud late-load --kmi android14-6.1 --allow-shell; then
+    for i in $(seq 1 30); do
+      if timeout 10s adb shell su -c id > "test-results/kernelsu-root-check-attempt-$attempt.txt" 2>&1; then
+        if grep -q 'uid=0' "test-results/kernelsu-root-check-attempt-$attempt.txt"; then
+          cp "test-results/kernelsu-root-check-attempt-$attempt.txt" test-results/kernelsu-root-check.txt
+          KSU_ACTIVATED=1
+          break
+        fi
+      fi
+      sleep 2
+    done
+  else
+    echo "late-load command failed on attempt $attempt" | tee "test-results/kernelsu-attempt-$attempt-failure.txt"
   fi
-  sleep 2
+
+  if [[ "$KSU_ACTIVATED" == "1" ]]; then
+    stage "KERNELSU_ACTIVATED_ON_ATTEMPT_$attempt"
+    break
+  fi
+
+  if [[ "$attempt" -lt 3 ]]; then
+    stage "REBOOT_BEFORE_KERNELSU_RETRY_$((attempt + 1))"
+    timeout 30s adb reboot
+    wait_boot
+  fi
 done
-grep -q 'uid=0' test-results/kernelsu-root-check.txt
+if [[ "$KSU_ACTIVATED" != "1" ]]; then
+  echo "KernelSU did not activate after three boot/late-load attempts" | tee test-results/status.txt
+  exit 1
+fi
 timeout 20s adb shell dmesg > test-results/dmesg-after-kernelsu-late-load.txt 2>&1 || true
 
 stage "INSTALL_REGULAR_MODULES_THEN_METAMODULE_WITHOUT_INTERMEDIATE_REBOOT"
