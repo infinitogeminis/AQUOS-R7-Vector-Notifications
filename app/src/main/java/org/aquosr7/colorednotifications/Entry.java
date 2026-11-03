@@ -55,6 +55,7 @@ public final class Entry extends XposedModule {
             installApplicationIconHook(iconView);
             installColorPreservationHooks(iconView);
             installNativeImsTintHook(param.getClassLoader());
+            installNativeImsRedTuningHook();
             Log.i(TAG, "SystemUI hooks initialized");
         } catch (Throwable error) {
             Log.e(TAG, "SystemUI hook initialization failed", error);
@@ -181,6 +182,18 @@ public final class Entry extends XposedModule {
                 return result;
             });
 
+            Method setResource = ImageView.class.getDeclaredMethod(
+                    "setImageResource", int.class);
+            hook(setResource).setId("aquosr7-tune-native-ims-brick-red")
+                    .intercept(chain -> {
+                        Object target = chain.getThisObject();
+                        Object result = chain.proceed();
+                        if (NATIVE_IMS_VIEWS.containsKey(target)) {
+                            recolorNativeImsVector((ImageView) target);
+                        }
+                        return result;
+                    });
+
             Method setTint = ImageView.class.getDeclaredMethod(
                     "setImageTintList", ColorStateList.class);
             hook(setTint).setId("aquosr7-preserve-native-ims-drawable-colors")
@@ -195,6 +208,83 @@ public final class Entry extends XposedModule {
         } catch (Throwable error) {
             Log.e(TAG, "Cannot install native IMS tint hook", error);
         }
+    }
+
+
+    /**
+     * Slightly lifts only Sharp's original brick-red vector paths.
+     * Geometry, alpha and all non-red fills remain unchanged.
+     */
+    private void installNativeImsRedTuningHook() {
+        Log.i(TAG, "Native IMS red tuning armed target=#FF944949 source=#FF8C4141");
+    }
+
+    private static void recolorNativeImsVector(ImageView imageView) {
+        try {
+            Drawable drawable = imageView.getDrawable();
+            if (drawable == null) return;
+            drawable = drawable.mutate();
+            int changed = recolorVectorNode(drawable, 0);
+            if (changed > 0) {
+                imageView.setImageDrawable(drawable);
+                Log.i(TAG, "NATIVE_IMS_RED_TUNED paths=" + changed + " target=#FF944949");
+            } else {
+                Log.w(TAG, "NATIVE_IMS_RED_NOT_FOUND drawable=" + drawable.getClass().getName());
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "NATIVE_IMS_RED_TUNING_FAILED", error);
+        }
+    }
+
+    private static int recolorVectorNode(Object node, int depth) throws Exception {
+        if (node == null || depth > 12) return 0;
+        int changed = 0;
+        String className = node.getClass().getName();
+
+        if (className.contains("VectorDrawable") && !className.contains("Compat")) {
+            Field stateField = findField(node.getClass(), "mVectorState");
+            if (stateField != null) {
+                stateField.setAccessible(true);
+                changed += recolorVectorNode(stateField.get(node), depth + 1);
+            }
+        }
+        Field rendererField = findField(node.getClass(), "mVPathRenderer");
+        if (rendererField != null) {
+            rendererField.setAccessible(true);
+            changed += recolorVectorNode(rendererField.get(node), depth + 1);
+        }
+        Field rootField = findField(node.getClass(), "mRootGroup");
+        if (rootField != null) {
+            rootField.setAccessible(true);
+            changed += recolorVectorNode(rootField.get(node), depth + 1);
+        }
+        Field childrenField = findField(node.getClass(), "mChildren");
+        if (childrenField != null) {
+            childrenField.setAccessible(true);
+            Object children = childrenField.get(node);
+            if (children instanceof Iterable<?>) {
+                for (Object child : (Iterable<?>) children) {
+                    changed += recolorVectorNode(child, depth + 1);
+                }
+            }
+        }
+        changed += recolorComplexColor(node, "mFillColors");
+        changed += recolorComplexColor(node, "mStrokeColors");
+        return changed;
+    }
+
+    private static int recolorComplexColor(Object path, String fieldName) throws Exception {
+        Field colorField = findField(path.getClass(), fieldName);
+        if (colorField == null) return 0;
+        colorField.setAccessible(true);
+        Object complexColor = colorField.get(path);
+        if (complexColor == null) return 0;
+        Field valueField = findField(complexColor.getClass(), "mColor");
+        if (valueField == null || valueField.getType() != int.class) return 0;
+        valueField.setAccessible(true);
+        if (valueField.getInt(complexColor) != 0xFF8C4141) return 0;
+        valueField.setInt(complexColor, 0xFF944949);
+        return 1;
     }
 
     /**
