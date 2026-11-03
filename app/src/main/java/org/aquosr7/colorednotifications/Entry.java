@@ -125,9 +125,8 @@ public final class Entry extends XposedModule {
             hook(method).setId(hookId).intercept(chain -> {
                 Object target = chain.getThisObject();
                 if (isNativeImsIcon(target)) {
-                    if ("updateIconColor".equals(name)) {
-                        clearDrawableColorFilter(target);
-                    }
+                    // All four Sharp IMS tint entry points are intercepted
+                    // before their original implementations can recolor the drawable.
                     return null;
                 }
                 if (!isThirdPartyNotification(target)) {
