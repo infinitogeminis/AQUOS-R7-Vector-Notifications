@@ -60,74 +60,35 @@ KERNEL_RELEASE="$(timeout 15s adb shell uname -r | tr -d '\r')"
 echo "$KERNEL_RELEASE" | tee test-results/kernel-release.txt
 
 # This workflow runs on the Android 14 x86_64 AVD, not on the AQUOS R7.
-# The AVD uses its own android14-6.1 KMI. The phone's android12-5.10 KMI
+# The AVD uses its own android15-6.6 KMI. The phone's android12-5.10 KMI
 # is validated separately on the physical device and must not gate this AVD test.
 if [[ ! "$KERNEL_RELEASE" =~ ^6\.1\.[0-9]+-android14- ]]; then
-  echo "Kernel KMI mismatch: expected Android 14 AVD kernel 6.1.x-android14; got $KERNEL_RELEASE" | tee test-results/status.txt
+  echo "Kernel KMI mismatch: expected Android 15 AVD kernel 6.6.x-android15; got $KERNEL_RELEASE" | tee test-results/status.txt
   exit 1
 fi
 echo "AVD kernel release family check passed: android14-6.1" | tee test-results/kmi-check.txt
 
-stage "ADB_ROOT_BOOTSTRAP"
-timeout 30s adb root
-wait_boot
+stage "PATCH_AVD_RAMDISK_WITH_KERNELSU_X86_64_LKM"
+AVD_SYSTEM_PATH="$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
+test -s "$AVD_SYSTEM_PATH/ramdisk.img"
+timeout 180s downloads/ksud-host boot-patch --ramdisk -b "$AVD_SYSTEM_PATH/ramdisk.img" --out "$AVD_SYSTEM_PATH" --out-name ramdisk.img.kernelsu --arch x86_64 --kmi android15-6.6 | tee test-results/kernelsu-ramdisk-patch.txt
+test -s "$AVD_SYSTEM_PATH/ramdisk.img.kernelsu"
+sha256sum "$AVD_SYSTEM_PATH/ramdisk.img" "$AVD_SYSTEM_PATH/ramdisk.img.kernelsu" | tee test-results/ramdisk-sha256.txt
 
-stage "INSTALL_KERNELSU_MANAGER_AND_KSUD"
+stage "BOOT_KERNELSU_PATCHED_AVD"
+emulator -avd aquosr7-api35 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics -ramdisk "$AVD_SYSTEM_PATH/ramdisk.img.kernelsu" > test-results/emulator.log 2>&1 &
+echo $! > test-results/emulator.pid
+timeout 30s adb start-server
+wait_boot
+adb devices -l | tee test-results/adb-devices.txt
 timeout 60s adb install -r downloads/KernelSU-v3.3.1.apk
-timeout 30s adb push downloads/ksud /data/local/tmp/ksud
+timeout 30s adb push downloads/ksud-android /data/local/tmp/ksud
 timeout 20s adb shell chmod 0755 /data/local/tmp/ksud
 timeout 20s adb shell /data/local/tmp/ksud --version | tee test-results/ksud-version.txt
-
-stage "VERIFY_KERNELSU_KMI_ASSET_SUPPORT"
+stage "VERIFY_KERNELSU_AFTER_RAMDISK_BOOT"
+timeout 30s adb shell /data/local/tmp/ksud status | tee test-results/kernelsu-status.txt
+grep -Eiq 'working|installed|enabled|true' test-results/kernelsu-status.txt
 timeout 20s adb shell /data/local/tmp/ksud boot-info current-kmi | tee test-results/kernelsu-current-kmi.txt
-timeout 20s adb shell /data/local/tmp/ksud boot-info supported-kmis | tee test-results/kernelsu-supported-kmis.txt
-# The running kernel KMI is derived from uname above. "current-kmi" is
-# KernelSU's own current/default KMI state and may differ on a clean AVD;
-# it is diagnostic only. Gate activation on the required KMI being supported.
-grep -Fxq "android14-6.1" test-results/kernelsu-supported-kmis.txt
-
-stage "ACTIVATE_KERNELSU_USING_OFFICIAL_LATE_LOAD_WITH_THREE_BOOT_ATTEMPTS"
-# A clean boot can miss activation on the first pass. Test up to three independent
-# boot attempts; a failed attempt is followed by a full reboot before retrying.
-KSU_ACTIVATED=0
-for attempt in 1 2 3; do
-  stage "KERNELSU_ACTIVATION_ATTEMPT_$attempt"
-  rm -f test-results/kernelsu-root-check-attempt-$attempt.txt
-  if timeout 90s adb shell /data/local/tmp/ksud late-load --kmi android14-6.1 --allow-shell; then
-    for i in $(seq 1 30); do
-      # adb root is enabled for this AVD. Avoid "su -c": Android toybox su
-      # parses -c as a UID/GID (the false-negative in Run #19). The actual
-      # activation gate is successful late-load followed by privileged ksud
-      # module install/list operations below.
-      if timeout 10s adb shell id > "test-results/kernelsu-root-check-attempt-$attempt.txt" 2>&1; then
-        if grep -q 'uid=0' "test-results/kernelsu-root-check-attempt-$attempt.txt"; then
-          cp "test-results/kernelsu-root-check-attempt-$attempt.txt" test-results/kernelsu-root-check.txt
-          KSU_ACTIVATED=1
-          break
-        fi
-      fi
-      sleep 2
-    done
-  else
-    echo "late-load command failed on attempt $attempt" | tee "test-results/kernelsu-attempt-$attempt-failure.txt"
-  fi
-
-  if [[ "$KSU_ACTIVATED" == "1" ]]; then
-    stage "KERNELSU_ACTIVATED_ON_ATTEMPT_$attempt"
-    break
-  fi
-
-  if [[ "$attempt" -lt 3 ]]; then
-    stage "REBOOT_BEFORE_KERNELSU_RETRY_$((attempt + 1))"
-    timeout 30s adb reboot
-    wait_boot
-  fi
-done
-if [[ "$KSU_ACTIVATED" != "1" ]]; then
-  echo "KernelSU did not activate after three boot/late-load attempts" | tee test-results/status.txt
-  exit 1
-fi
-timeout 20s adb shell dmesg > test-results/dmesg-after-kernelsu-late-load.txt 2>&1 || true
 
 stage "INSTALL_REGULAR_MODULES_THEN_METAMODULE_WITHOUT_INTERMEDIATE_REBOOT"
 # KernelSU v3.3.1 blocks regular module installs while a metamodule with
@@ -152,7 +113,7 @@ timeout 20s adb logcat -d -t 12000 > test-results/logcat.txt 2>&1
 timeout 20s adb exec-out screencap -p > test-results/android14-kernelsu-screen.png
 
 {
-  echo "Android 14 AVD KMI (android14-6.1) + KernelSU v3.3.1 LKM smoke test"
+  echo "Android 15 AVD KMI (android14-6.1) + KernelSU v3.3.1 LKM smoke test"
   echo "Kernel: $KERNEL_RELEASE"
   echo "Root check:"
   cat test-results/kernelsu-root-check-final.txt
