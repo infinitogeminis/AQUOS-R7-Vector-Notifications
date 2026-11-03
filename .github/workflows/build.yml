@@ -1,44 +1,31 @@
-name: Build AQUOS R7 Vector module
+name: Build AQUOS R7 Colored Notification Icons
 on:
   workflow_dispatch:
   push:
     branches: [ main, test/android14-avd-smoke, feature/crdroid-original-app-icons ]
-    paths:
-      - app/**
-      - build.gradle
-      - settings.gradle
-      - gradle.properties
-      - .github/workflows/build.yml
+    paths: [ 'app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/build.yml' ]
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+        with: { distribution: temurin, java-version: '17' }
       - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
+        with: { packages: platform-tools }
       - name: Install Android SDK platform
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
-      - name: Build colored notification icon module
+        with: { gradle-version: '8.7' }
+      - name: Build module
         run: gradle --no-daemon :app:assembleDebug
-      - name: Prepare APK artifact
+      - name: Verify APK
         run: |
           set -euo pipefail
-          mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/AQUOS-R7-Colored-Notifications.apk
-          sha256sum dist/AQUOS-R7-Colored-Notifications.apk | tee dist/SHA256SUMS.txt
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: AQUOS-R7-Colored-Notifications-APK
-          path: |
-            dist/AQUOS-R7-Colored-Icons-Vector-Bundle.zip
-            dist/AQUOS-R7-Colored-Icons/
-            app/build/outputs/apk/debug/app-debug.apk
+          name: AQUOS-R7-Colored-Notifications-v1.0.6
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
