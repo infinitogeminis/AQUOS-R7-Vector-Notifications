@@ -45,10 +45,11 @@ jobs:
           mkdir -p downloads test-results
           curl -fL --retry 3 https://github.com/tiann/KernelSU/releases/download/v3.3.1/KernelSU_v3.3.1_32680-release.apk -o downloads/KernelSU-v3.3.1.apk
           curl -fL --retry 3 https://github.com/tiann/KernelSU/releases/download/v3.3.1/ksud-x86_64-unknown-linux-musl -o downloads/ksud-host
+          curl -fL --retry 3 https://github.com/tiann/KernelSU/releases/download/v3.3.1/ksud-x86_64-linux-android -o downloads/ksud-android
           curl -fL --retry 3 https://github.com/backslashxx/mountify/releases/download/205/mountify.zip -o downloads/mountify.zip
           curl -fL --retry 3 https://github.com/LSPosed/ZygiskNext/releases/download/v1.5.2/Zygisk-Next-1.5.2-864-a4a72ce-release.zip -o downloads/zygisk-next.zip
           curl -fL --retry 3 https://github.com/JingMatrix/Vector/releases/download/v2.2/Vector-v2.2-3080-Release.zip -o downloads/vector.zip
-          chmod 0755 downloads/ksud-host
+          chmod 0755 downloads/ksud-host downloads/ksud-android
           echo "b4a059ace71de2fa65cc7f12b1c58d55fc23ab25e057ee4230ce779742abe450  downloads/KernelSU-v3.3.1.apk" | sha256sum -c -
           echo "2b1850e73bfb0b3dcec8b250272ee9a172b7456f5e2cb53bb5b11d5a0b8848c9  downloads/mountify.zip" | sha256sum -c -
           echo "ce50b13fecb9e4456db69ef17b715f7cfbc094004dd9f30f7d6348dfab619a96  downloads/zygisk-next.zip" | sha256sum -c -
