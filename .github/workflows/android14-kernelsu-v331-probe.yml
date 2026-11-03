@@ -56,6 +56,18 @@ jobs:
           echo "9ee8323575d615f7b3f1076ff60b2a63a49390ef11881b52632311a37f6f79cc  downloads/vector.zip" | sha256sum -c -
           sha256sum downloads/* | tee test-results/download-sha256.txt
 
+      - name: Enable KVM access for Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -e /dev/kvm ]]; then
+            echo "/dev/kvm is unavailable on this runner" >&2
+            exit 1
+          fi
+          sudo chmod 0666 /dev/kvm
+          ls -l /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
       - name: Create and boot Android 14 emulator
         shell: bash
         run: |
