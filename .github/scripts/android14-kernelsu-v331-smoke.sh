@@ -88,7 +88,7 @@ timeout 20s adb shell /data/local/tmp/ksud --version | tee test-results/ksud-ver
 stage "VERIFY_KERNELSU_AFTER_RAMDISK_BOOT"
 timeout 20s adb shell /data/local/tmp/ksud boot-info current-kmi | tee test-results/kernelsu-current-kmi.txt
 # Confirm that KernelSU grants an actual root shell before attempting module writes.
-timeout 20s adb shell su -c id | tee test-results/root-identity.txt
+timeout 20s adb shell su 0 id | tee test-results/root-identity.txt
 grep -q 'uid=0' test-results/root-identity.txt
 
 stage "INSTALL_REGULAR_MODULES_THEN_METAMODULE_WITHOUT_INTERMEDIATE_REBOOT"
@@ -97,7 +97,7 @@ stage "INSTALL_REGULAR_MODULES_THEN_METAMODULE_WITHOUT_INTERMEDIATE_REBOOT"
 # metainstall.sh has a pending update. Install Mountify last, then reboot once.
 for module in zygisk-next vector mountify; do
   timeout 30s adb push "downloads/$module.zip" "/data/local/tmp/$module.zip"
-  timeout 120s adb shell su -c "/data/local/tmp/ksud module install /data/local/tmp/$module.zip"
+  timeout 120s adb shell su 0 /data/local/tmp/ksud module install /data/local/tmp/$module.zip
   stage "INSTALLED $module"
 done
 timeout 30s adb shell /data/local/tmp/ksud module list | tee test-results/modules-before-reboot.txt
