@@ -1,4 +1,4 @@
-name: Android 15 KernelSU v3.3.1 x86_64 LKM emulator integration
+name: Android 14 KernelSU v3.3.1 x86_64 LKM emulator integration
 
 on:
   workflow_dispatch:
@@ -87,8 +87,8 @@ jobs:
             fi
           }
           run_sdkmanager --licenses
-          run_sdkmanager --install "platform-tools" "platforms;android-35" "system-images;android-35;google_apis;x86_64" "emulator"
-          printf 'no\n' | avdmanager create avd --force --name aquosr7-api34 --package "system-images;android-35;google_apis;x86_64" --device "pixel_5" 2>&1 | tee test-results/avdmanager-create.log
+          run_sdkmanager --install "platform-tools" "platforms;android-34" "system-images;android-34;google_apis;x86_64" "emulator"
+          printf 'no\n' | avdmanager create avd --force --name aquosr7-api34 --package "system-images;android-34;google_apis;x86_64" --device "pixel_5" 2>&1 | tee test-results/avdmanager-create.log
           avdmanager list avd 2>&1 | tee test-results/avdmanager-list.log
           test -s "$ANDROID_AVD_HOME/aquosr7-api34.ini"
           test -s "$ANDROID_AVD_HOME/aquosr7-api34.avd/config.ini"
