@@ -2,7 +2,7 @@ name: Build AQUOS R7 Vector module
 on:
   workflow_dispatch:
   push:
-    branches: [ main, test/android14-avd-smoke ]
+    branches: [ main, test/android14-avd-smoke, feature/crdroid-original-app-icons ]
     paths:
       - app/**
       - build.gradle
