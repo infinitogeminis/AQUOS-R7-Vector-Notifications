@@ -154,35 +154,72 @@ public final class Entry extends XposedModule {
      * skipped for these four known resource entry names.
      */
     private static boolean isNativeImsIcon(Object target) {
-        if (target == null) return false;
+        if (!(target instanceof View)) return false;
+        String resourceName = null;
+        String resourcePackage = null;
         try {
             Field iconField = findField(target.getClass(), "mIcon");
-            if (iconField == null) return false;
+            if (iconField == null) {
+                Log.w(TAG, "IMS_CHECK: StatusBarIconView.mIcon field not found");
+                return false;
+            }
             iconField.setAccessible(true);
             Object statusBarIcon = iconField.get(target);
             if (statusBarIcon == null) return false;
 
             Field drawableField = findField(statusBarIcon.getClass(), "icon");
-            if (drawableField == null) return false;
+            if (drawableField == null) {
+                Log.w(TAG, "IMS_CHECK: StatusBarIcon.icon field not found");
+                return false;
+            }
             drawableField.setAccessible(true);
             Object icon = drawableField.get(statusBarIcon);
             if (icon == null) return false;
 
             Method getResId = findMethod(icon.getClass(), "getResId");
-            if (getResId == null) return false;
+            if (getResId == null) {
+                Log.w(TAG, "IMS_CHECK: Icon.getResId() not found; iconClass="
+                        + icon.getClass().getName());
+                return false;
+            }
             Object value = getResId.invoke(icon);
             if (!(value instanceof Integer) || ((Integer) value) == 0) return false;
 
+            Method getResPackage = findMethod(icon.getClass(), "getResPackage");
+            if (getResPackage != null) {
+                Object packageValue = getResPackage.invoke(icon);
+                if (packageValue instanceof String) {
+                    resourcePackage = (String) packageValue;
+                }
+            }
+
             View view = (View) target;
-            String entry = view.getResources().getResourceEntryName((Integer) value);
-            boolean match = "ic_volte_tw".equals(entry)
-                    || "ic_vowifi_tw".equals(entry)
-                    || "ic_vowifi_tw1".equals(entry)
-                    || "ic_vowifi_tw2".equals(entry);
-            if (match) Log.i(TAG, "Preserving native IMS drawable colors: " + entry);
+            try {
+                resourceName = view.getResources().getResourceName((Integer) value);
+            } catch (Throwable lookupError) {
+                Log.w(TAG, "IMS_CHECK: resource ID cannot be resolved by SystemUI Resources; id=0x"
+                        + Integer.toHexString((Integer) value)
+                        + " package=" + resourcePackage, lookupError);
+                return false;
+            }
+
+            boolean systemUiResource = resourceName.startsWith("com.android.systemui:");
+            boolean expectedPackage = resourcePackage == null
+                    || SYSTEM_UI.equals(resourcePackage);
+            boolean match = systemUiResource && expectedPackage
+                    && (resourceName.endsWith(":drawable/ic_volte_tw")
+                    || resourceName.endsWith(":drawable/ic_vowifi_tw")
+                    || resourceName.endsWith(":drawable/ic_vowifi_tw1")
+                    || resourceName.endsWith(":drawable/ic_vowifi_tw2"));
+
+            if (match) {
+                Log.i(TAG, "IMS_NATIVE_ICON_MATCH resource=" + resourceName
+                        + " iconPackage=" + resourcePackage);
+            }
             return match;
         } catch (Throwable error) {
-            // Fail open: unknown icons retain the stock SystemUI tint path.
+            Log.w(TAG, "IMS_CHECK failed resource=" + resourceName
+                    + " package=" + resourcePackage, error);
             return false;
         }
     }
