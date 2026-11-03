@@ -1,6 +1,7 @@
 package org.aquosr7.colorednotifications;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.graphics.drawable.Drawable;
 import android.util.Log;
 
@@ -112,6 +113,20 @@ public final class Entry extends XposedModule {
                         return chain.proceed();
                     });
             Log.i(TAG, "Installed setStaticDrawableColor NO_COLOR hook");
+
+            Method imageTint = findMethod(iconClass, "setImageTintList", ColorStateList.class);
+            if (imageTint != null) {
+                imageTint.setAccessible(true);
+                hook(imageTint).setId("aquosr7-crdroid-clear-image-tint").intercept(chain -> {
+                    if (isThirdPartyView(chain.getThisObject())) {
+                        return chain.proceed(new Object[]{null});
+                    }
+                    return chain.proceed();
+                });
+                Log.i(TAG, "Installed setImageTintList(null) hook");
+            } else {
+                Log.w(TAG, "setImageTintList(ColorStateList) not found");
+            }
 
             Method iconColor = findMethod(iconClass, "setIconColor",
                     int.class, boolean.class);
