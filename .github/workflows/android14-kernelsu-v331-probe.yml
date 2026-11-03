@@ -87,7 +87,22 @@ jobs:
             fi
           }
           run_sdkmanager --licenses
-          run_sdkmanager --install "platform-tools" "platforms;android-34" "system-images;android-34;google_apis;x86_64" "emulator"
+          run_sdkmanager --install "platform-tools" "platforms;android-34" "emulator"
+          IMAGE_DIR="$ANDROID_HOME/system-images/android-34/google_apis/x86_64"
+          IMAGE_OK=0
+          for attempt in 1 2 3 4; do
+            rm -rf "$IMAGE_DIR" "$HOME/.android/cache"
+            mkdir -p "$HOME/.android/cache"
+            if run_sdkmanager --install "system-images;android-34;google_apis;x86_64" &&
+               test -s "$IMAGE_DIR/system.img" &&
+               test -s "$IMAGE_DIR/package.xml"; then
+              IMAGE_OK=1
+              break
+            fi
+            echo "Android 14 system-image attempt $attempt failed; retrying clean download." >&2
+            sleep $((attempt * 5))
+          done
+          test "$IMAGE_OK" = "1"
           printf 'no\n' | avdmanager create avd --force --name aquosr7-api34 --package "system-images;android-34;google_apis;x86_64" --device "pixel_5" 2>&1 | tee test-results/avdmanager-create.log
           avdmanager list avd 2>&1 | tee test-results/avdmanager-list.log
           test -s "$ANDROID_AVD_HOME/aquosr7-api34.ini"
