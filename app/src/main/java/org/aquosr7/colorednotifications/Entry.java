@@ -2,12 +2,18 @@ package org.aquosr7.colorednotifications;
 
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
+import android.content.res.ColorStateList;
+import android.widget.ImageView;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
 import android.view.View;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
@@ -24,6 +30,10 @@ public final class Entry extends XposedModule {
     private static final String SYSTEM_UI = "com.android.systemui";
     private static final String ICON_VIEW =
             "com.android.systemui.statusbar.StatusBarIconView";
+    private static final String IMS_TINT_COLLECTOR =
+            "com.android.systemui.statusbar.pipeline.mobile.ui.binder.MobileIconBinder$bind$1$1$12$1";
+    private static final Map<Object, Boolean> NATIVE_IMS_VIEWS =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
@@ -44,6 +54,7 @@ public final class Entry extends XposedModule {
             Class<?> iconView = param.getClassLoader().loadClass(ICON_VIEW);
             installApplicationIconHook(iconView);
             installColorPreservationHooks(iconView);
+            installNativeImsTintHook(param.getClassLoader());
             Log.i(TAG, "SystemUI hooks initialized");
         } catch (Throwable error) {
             Log.e(TAG, "SystemUI hook initialization failed", error);
@@ -146,6 +157,45 @@ public final class Entry extends XposedModule {
         }
     }
 
+
+    /**
+     * Sharp's collector receives four ImageViews: icon, network type, roaming,
+     * then the dedicated $volteView. The latter displays the selected native
+     * VoLTE/VoWiFi resource.
+     */
+    private void installNativeImsTintHook(ClassLoader loader) {
+        try {
+            Class<?> collector = loader.loadClass(IMS_TINT_COLLECTOR);
+            Class<?> statusBarIconView = loader.loadClass(ICON_VIEW);
+            Constructor<?> constructor = collector.getDeclaredConstructor(
+                    ImageView.class, ImageView.class, ImageView.class, ImageView.class,
+                    statusBarIconView);
+            hook(constructor).setId("aquosr7-register-native-ims-view").intercept(chain -> {
+                Object result = chain.proceed();
+                Object imsView = chain.getArg(3);
+                if (imsView instanceof ImageView) {
+                    NATIVE_IMS_VIEWS.put(imsView, Boolean.TRUE);
+                    Log.i(TAG, "NATIVE_IMS_VIEW_REGISTERED view="
+                            + Integer.toHexString(System.identityHashCode(imsView)));
+                }
+                return result;
+            });
+
+            Method setTint = ImageView.class.getDeclaredMethod(
+                    "setImageTintList", ColorStateList.class);
+            hook(setTint).setId("aquosr7-preserve-native-ims-drawable-colors")
+                    .intercept(chain -> {
+                        if (NATIVE_IMS_VIEWS.containsKey(chain.getThisObject())) {
+                            Log.i(TAG, "NATIVE_IMS_TINT_BLOCKED");
+                            return null;
+                        }
+                        return chain.proceed();
+                    });
+            Log.i(TAG, "Installed native IMS ImageView tint hook");
+        } catch (Throwable error) {
+            Log.e(TAG, "Cannot install native IMS tint hook", error);
+        }
+    }
 
     /**
      * Identify Sharp's native IMS status icons from the actual StatusBarIcon
