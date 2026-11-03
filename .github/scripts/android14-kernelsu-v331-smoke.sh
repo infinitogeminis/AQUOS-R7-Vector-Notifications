@@ -59,19 +59,19 @@ timeout 15s adb shell uname -a | tee test-results/kernel-uname.txt
 KERNEL_RELEASE="$(timeout 15s adb shell uname -r | tr -d '\r')"
 echo "$KERNEL_RELEASE" | tee test-results/kernel-release.txt
 
-# This workflow runs on the Android 15 x86_64 AVD, not on the AQUOS R7.
-# The AVD uses its own android15-6.6 KMI. The phone's android12-5.10 KMI
+# This workflow runs on the Android 14 x86_64 AVD, not on the AQUOS R7.
+# The AVD uses its own android14-6.1 KMI. The phone's android12-5.10 KMI
 # is validated separately on the physical device and must not gate this AVD test.
 if [[ ! "$KERNEL_RELEASE" =~ ^6\.1\.[0-9]+-android14- ]]; then
-  echo "Kernel KMI mismatch: expected Android 15 AVD kernel 6.6.x-android15; got $KERNEL_RELEASE" | tee test-results/status.txt
+  echo "Kernel KMI mismatch: expected Android 14 AVD kernel 6.6.x-android15; got $KERNEL_RELEASE" | tee test-results/status.txt
   exit 1
 fi
-echo "AVD kernel release family check passed: android15-6.6" | tee test-results/kmi-check.txt
+echo "AVD kernel release family check passed: android14-6.1" | tee test-results/kmi-check.txt
 
 stage "PATCH_AVD_RAMDISK_WITH_KERNELSU_X86_64_LKM"
-AVD_SYSTEM_PATH="$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
+AVD_SYSTEM_PATH="$ANDROID_HOME/system-images/android-34/google_apis/x86_64"
 test -s "$AVD_SYSTEM_PATH/ramdisk.img"
-timeout 180s downloads/ksud-host boot-patch --ramdisk -b "$AVD_SYSTEM_PATH/ramdisk.img" --out "$AVD_SYSTEM_PATH" --out-name ramdisk.img.kernelsu --arch x86_64 --kmi android15-6.6 | tee test-results/kernelsu-ramdisk-patch.txt
+timeout 180s downloads/ksud-host boot-patch --ramdisk -b "$AVD_SYSTEM_PATH/ramdisk.img" --out "$AVD_SYSTEM_PATH" --out-name ramdisk.img.kernelsu --arch x86_64 --kmi android14-6.1 | tee test-results/kernelsu-ramdisk-patch.txt
 test -s "$AVD_SYSTEM_PATH/ramdisk.img.kernelsu"
 sha256sum "$AVD_SYSTEM_PATH/ramdisk.img" "$AVD_SYSTEM_PATH/ramdisk.img.kernelsu" | tee test-results/ramdisk-sha256.txt
 
@@ -86,8 +86,6 @@ timeout 30s adb push downloads/ksud-android /data/local/tmp/ksud
 timeout 20s adb shell chmod 0755 /data/local/tmp/ksud
 timeout 20s adb shell /data/local/tmp/ksud --version | tee test-results/ksud-version.txt
 stage "VERIFY_KERNELSU_AFTER_RAMDISK_BOOT"
-timeout 30s adb root
-wait_boot
 timeout 20s adb shell /data/local/tmp/ksud boot-info current-kmi | tee test-results/kernelsu-current-kmi.txt
 
 stage "INSTALL_REGULAR_MODULES_THEN_METAMODULE_WITHOUT_INTERMEDIATE_REBOOT"
@@ -110,10 +108,10 @@ timeout 30s adb shell /data/local/tmp/ksud module list | tee test-results/module
 timeout 60s adb install -r app/build/outputs/apk/debug/app-debug.apk
 timeout 20s adb shell pm path org.aquosr7.colorednotifications | tee test-results/notification-package-path.txt
 timeout 20s adb logcat -d -t 12000 > test-results/logcat.txt 2>&1
-timeout 20s adb exec-out screencap -p > test-results/android15-kernelsu-screen.png
+timeout 20s adb exec-out screencap -p > test-results/android14-kernelsu-screen.png
 
 {
-  echo "Android 15 AVD KMI (android15-6.6) + KernelSU v3.3.1 x86_64 LKM smoke test"
+  echo "Android 14 AVD KMI (android14-6.1) + KernelSU v3.3.1 x86_64 LKM smoke test"
   echo "Kernel: $KERNEL_RELEASE"
   echo "KernelSU module API after reboot:"
   cat test-results/modules-after-reboot-check.txt
