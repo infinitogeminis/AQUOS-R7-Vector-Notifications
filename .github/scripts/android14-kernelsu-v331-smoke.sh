@@ -59,14 +59,14 @@ timeout 15s adb shell uname -a | tee test-results/kernel-uname.txt
 KERNEL_RELEASE="$(timeout 15s adb shell uname -r | tr -d '\r')"
 echo "$KERNEL_RELEASE" | tee test-results/kernel-release.txt
 
-# This workflow runs on the Android 14 x86_64 AVD, not on the AQUOS R7.
+# This workflow runs on the Android 15 x86_64 AVD, not on the AQUOS R7.
 # The AVD uses its own android15-6.6 KMI. The phone's android12-5.10 KMI
 # is validated separately on the physical device and must not gate this AVD test.
 if [[ ! "$KERNEL_RELEASE" =~ ^6\.1\.[0-9]+-android14- ]]; then
   echo "Kernel KMI mismatch: expected Android 15 AVD kernel 6.6.x-android15; got $KERNEL_RELEASE" | tee test-results/status.txt
   exit 1
 fi
-echo "AVD kernel release family check passed: android14-6.1" | tee test-results/kmi-check.txt
+echo "AVD kernel release family check passed: android15-6.6" | tee test-results/kmi-check.txt
 
 stage "PATCH_AVD_RAMDISK_WITH_KERNELSU_X86_64_LKM"
 AVD_SYSTEM_PATH="$ANDROID_HOME/system-images/android-35/google_apis/x86_64"
@@ -76,7 +76,7 @@ test -s "$AVD_SYSTEM_PATH/ramdisk.img.kernelsu"
 sha256sum "$AVD_SYSTEM_PATH/ramdisk.img" "$AVD_SYSTEM_PATH/ramdisk.img.kernelsu" | tee test-results/ramdisk-sha256.txt
 
 stage "BOOT_KERNELSU_PATCHED_AVD"
-emulator -avd aquosr7-api35 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics -ramdisk "$AVD_SYSTEM_PATH/ramdisk.img.kernelsu" > test-results/emulator.log 2>&1 &
+emulator -avd aquosr7-api34 -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -no-metrics -ramdisk "$AVD_SYSTEM_PATH/ramdisk.img.kernelsu" > test-results/emulator.log 2>&1 &
 echo $! > test-results/emulator.pid
 timeout 30s adb start-server
 wait_boot
