@@ -91,6 +91,11 @@ timeout 20s adb shell /data/local/tmp/ksud boot-info current-kmi | tee test-resu
 timeout 20s adb shell su 0 id | tee test-results/root-identity.txt
 grep -q 'uid=0' test-results/root-identity.txt
 
+# Root-shell access alone does not prove that the KernelSU kernel interface is active.
+stage "DIAGNOSE_KERNELSU_KERNEL_INTERFACE"
+timeout 20s adb shell su 0 sh -c 'echo PROC_MODULES; cat /proc/modules; echo KSU_SYSFS; ls -la /sys/module 2>/dev/null | grep -i ksu || true; echo KSU_DMESG; dmesg 2>&1 | grep -i -E "kernelsu|kernel su|ksu|module.*(load|fail|invalid)" | tail -120 || true' | tee test-results/kernelsu-kernel-interface.txt
+timeout 20s adb shell su 0 sh -c 'cat /proc/config.gz 2>/dev/null | gzip -dc 2>/dev/null | grep -E "CONFIG_MODULES=|CONFIG_MODULE_UNLOAD=|CONFIG_MODULE_SIG"' | tee test-results/kernel-module-config.txt || true
+
 stage "INSTALL_REGULAR_MODULES_THEN_METAMODULE_WITHOUT_INTERMEDIATE_REBOOT"
 # Module installation modifies KernelSU's protected module store and must run as root.
 # KernelSU v3.3.1 blocks regular module installs while a metamodule with
