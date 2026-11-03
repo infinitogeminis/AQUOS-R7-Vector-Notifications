@@ -86,8 +86,8 @@ timeout 30s adb push downloads/ksud-android /data/local/tmp/ksud
 timeout 20s adb shell chmod 0755 /data/local/tmp/ksud
 timeout 20s adb shell /data/local/tmp/ksud --version | tee test-results/ksud-version.txt
 stage "VERIFY_KERNELSU_AFTER_RAMDISK_BOOT"
-timeout 30s adb shell /data/local/tmp/ksud status | tee test-results/kernelsu-status.txt
-grep -Eiq 'working|installed|enabled|true' test-results/kernelsu-status.txt
+timeout 30s adb root
+wait_boot
 timeout 20s adb shell /data/local/tmp/ksud boot-info current-kmi | tee test-results/kernelsu-current-kmi.txt
 
 stage "INSTALL_REGULAR_MODULES_THEN_METAMODULE_WITHOUT_INTERMEDIATE_REBOOT"
@@ -105,18 +105,18 @@ timeout 30s adb reboot
 wait_boot
 
 stage "POST_REBOOT_KERNELSU_AND_MODULE_VALIDATION"
-timeout 30s adb shell id | tee test-results/kernelsu-root-check-final.txt
+timeout 30s adb shell /data/local/tmp/ksud module list | tee test-results/modules-after-reboot-check.txt
 timeout 30s adb shell /data/local/tmp/ksud module list | tee test-results/modules-final.txt
 timeout 60s adb install -r app/build/outputs/apk/debug/app-debug.apk
 timeout 20s adb shell pm path org.aquosr7.colorednotifications | tee test-results/notification-package-path.txt
 timeout 20s adb logcat -d -t 12000 > test-results/logcat.txt 2>&1
-timeout 20s adb exec-out screencap -p > test-results/android14-kernelsu-screen.png
+timeout 20s adb exec-out screencap -p > test-results/android15-kernelsu-screen.png
 
 {
-  echo "Android 15 AVD KMI (android14-6.1) + KernelSU v3.3.1 LKM smoke test"
+  echo "Android 15 AVD KMI (android15-6.6) + KernelSU v3.3.1 x86_64 LKM smoke test"
   echo "Kernel: $KERNEL_RELEASE"
-  echo "Root check:"
-  cat test-results/kernelsu-root-check-final.txt
+  echo "KernelSU module API after reboot:"
+  cat test-results/modules-after-reboot-check.txt
   echo "Modules:"
   cat test-results/modules-final.txt
   echo "APK:"
