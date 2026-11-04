@@ -2,7 +2,7 @@ name: Build AQUOS R7 Colored Notification Icons
 on:
   workflow_dispatch:
   push:
-    branches: [ main, test/android14-avd-smoke, feature/crdroid-original-app-icons, feature/battery-and-system-icons, feature/ims-red-tuning ]
+    branches: [ main, test/android14-avd-smoke, feature/crdroid-original-app-icons, feature/battery-and-system-icons, feature/ims-red-tuning, feature/volte-brighter-red-v1.0.17 ]
     paths: [ 'app/**', 'build.gradle', 'settings.gradle', 'gradle.properties', '.github/workflows/build.yml' ]
 jobs:
   build:
@@ -26,6 +26,6 @@ jobs:
           sha256sum app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: AQUOS-R7-Colored-Notifications-v1.0.13
+          name: AQUOS-R7-Colored-Notifications-v1.0.17
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
