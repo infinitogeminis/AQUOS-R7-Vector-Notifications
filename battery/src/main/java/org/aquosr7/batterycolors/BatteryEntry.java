@@ -187,8 +187,7 @@ public final class BatteryEntry extends XposedModule {
                 Log.w(TAG, "HOOK_METHOD_MISSING method=draw(Canvas)");
             }
 
-            installCanvasFillHook(classLoader);
-            installed++;
+            installed += installCanvasFillHook(classLoader);
 
             if (installed < 2) {
                 throw new NoSuchMethodException("Insufficient battery hooks installed");
@@ -257,12 +256,8 @@ public final class BatteryEntry extends XposedModule {
         }
     }
 
-    private void installCanvasFillHook(ClassLoader loader) throws Exception {
-        Method canvasDrawPath = Canvas.class.getDeclaredMethod(
-                "drawPath", Path.class, Paint.class);
-        installDrawPathHook(canvasDrawPath,
-                "aquosr7-battery-dualtone-canvas-fill-v106");
-        Log.i(TAG, "CANVAS_DRAWPATH_HOOK_INSTALLED class=android.graphics.Canvas");
+    private int installCanvasFillHook(ClassLoader loader) {
+        int installed = 0;
 
         // Hardware-accelerated SystemUI views draw through RecordingCanvas.
         // Android 14 overrides drawPath() there with a final implementation,
@@ -273,12 +268,27 @@ public final class BatteryEntry extends XposedModule {
                     "drawPath", Path.class, Paint.class);
             installDrawPathHook(recordingDrawPath,
                     "aquosr7-battery-dualtone-recording-canvas-fill-v106");
+            installed++;
             Log.i(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_INSTALLED class="
                     + recordingCanvas.getName()
                     + " signature=" + recordingDrawPath.toGenericString());
         } catch (Throwable error) {
             Log.e(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_FAILED", error);
         }
+
+        try {
+            Method canvasDrawPath = Canvas.class.getDeclaredMethod(
+                    "drawPath", Path.class, Paint.class);
+            installDrawPathHook(canvasDrawPath,
+                    "aquosr7-battery-dualtone-canvas-fill-v106");
+            installed++;
+            Log.i(TAG, "CANVAS_DRAWPATH_HOOK_INSTALLED class=android.graphics.Canvas"
+                    + " signature=" + canvasDrawPath.toGenericString());
+        } catch (Throwable error) {
+            Log.e(TAG, "CANVAS_DRAWPATH_HOOK_FAILED", error);
+        }
+
+        return installed;
     }
 
     private void installDrawPathHook(Method drawPath, String hookId) {
