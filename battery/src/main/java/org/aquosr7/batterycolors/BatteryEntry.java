@@ -29,6 +29,8 @@ public final class BatteryEntry extends XposedModule {
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Object, Boolean> DUAL_TONE_READY_LOGGED =
             Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<Object, Boolean> DUAL_TONE_DRAW_LOGGED =
+            Collections.synchronizedMap(new WeakHashMap<>());
     private static final ThreadLocal<DrawContext> ACTIVE_DRAW =
             new ThreadLocal<>();
 
@@ -180,7 +182,7 @@ public final class BatteryEntry extends XposedModule {
                     paint.setColor(batteryColor);
                     try {
                         Object result = chain.proceed();
-                        if (DUAL_TONE_READY_LOGGED.put(
+                        if (DUAL_TONE_DRAW_LOGGED.put(
                                 context.drawable, Boolean.TRUE) == null) {
                             Log.i(TAG, "DUAL_TONE_BODY_DRAW_RECOLORED level="
                                     + context.level + " color="
