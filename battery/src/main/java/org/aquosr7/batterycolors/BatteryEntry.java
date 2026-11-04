@@ -41,16 +41,18 @@ public final class BatteryEntry extends XposedModule {
     private static final class DrawContext {
         final Object drawable;
         final Path unifiedPath;
+        final Path levelPath;
         final Paint fillPaint;
         final boolean dualTone;
         final int level;
         int canvasDrawPathCalls;
         int matchingBodyCalls;
 
-        DrawContext(Object drawable, Path unifiedPath, Paint fillPaint,
+        DrawContext(Object drawable, Path unifiedPath, Path levelPath, Paint fillPaint,
                     boolean dualTone, int level) {
             this.drawable = drawable;
             this.unifiedPath = unifiedPath;
+            this.levelPath = levelPath;
             this.fillPaint = fillPaint;
             this.dualTone = dualTone;
             this.level = level;
@@ -297,30 +299,26 @@ public final class BatteryEntry extends XposedModule {
     private int installCanvasFillHook(ClassLoader loader) {
         int installed = 0;
 
-        // Android 14 uses android.view.RecordingCanvas for View drawing.
-        // Newer platform revisions also expose android.graphics.RecordingCanvas.
-        // Both override drawPath(); the Android 14 override is final, so the
-        // base Canvas hook alone cannot intercept hardware-accelerated drawing.
-        for (String recordingCanvasName : new String[]{
-                "android.view.RecordingCanvas",
-                "android.graphics.RecordingCanvas"}) {
-            try {
-                Class<?> recordingCanvas = loader.loadClass(recordingCanvasName);
-                Method recordingDrawPath = recordingCanvas.getDeclaredMethod(
-                        "drawPath", Path.class, Paint.class);
-                String hookId = "aquosr7-battery-dualtone-"
-                        + recordingCanvasName.substring(recordingCanvasName.lastIndexOf('.') + 1)
-                        .toLowerCase(java.util.Locale.ROOT) + "-fill-v106";
-                installDrawPathHook(recordingDrawPath, hookId);
-                installed++;
-                Log.i(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_INSTALLED class="
-                        + recordingCanvas.getName()
-                        + " signature=" + recordingDrawPath.toGenericString());
-            } catch (Throwable error) {
-                Log.w(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_UNAVAILABLE class="
-                        + recordingCanvasName, error);
-            }
+        // Android 14's hardware-accelerated View canvas is
+        // android.graphics.RecordingCanvas, but drawPath() is inherited as a
+        // FINAL method from android.graphics.BaseRecordingCanvas. Hooking
+        // Canvas.drawPath() or getDeclaredMethod() on RecordingCanvas misses it.
+        try {
+            Class<?> baseRecordingCanvas =
+                    loader.loadClass("android.graphics.BaseRecordingCanvas");
+            Method recordingDrawPath = baseRecordingCanvas.getDeclaredMethod(
+                    "drawPath", Path.class, Paint.class);
+            installDrawPathHook(recordingDrawPath,
+                    "aquosr7-battery-base-recording-canvas-fill-v108");
+            installed++;
+            Log.i(TAG, "BASE_RECORDING_CANVAS_DRAWPATH_HOOK_INSTALLED class="
+                    + baseRecordingCanvas.getName()
+                    + " signature=" + recordingDrawPath.toGenericString());
+        } catch (Throwable error) {
+            Log.e(TAG, "BASE_RECORDING_CANVAS_DRAWPATH_HOOK_FAILED", error);
         }
+
+        // Software rendering fallback.
 
         try {
             Method canvasDrawPath = Canvas.class.getDeclaredMethod(
@@ -342,9 +340,16 @@ public final class BatteryEntry extends XposedModule {
             DrawContext context = ACTIVE_DRAW.get();
             if (context == null) return chain.proceed();
             context.canvasDrawPathCalls++;
-            if (!context.dualTone
-                    || chain.getArg(0) != context.unifiedPath
-                    || chain.getArg(1) != context.fillPaint) {
+            Object path = chain.getArg(0);
+            Object paintArg = chain.getArg(1);
+            boolean dualToneBody = context.dualTone
+                    && path == context.unifiedPath && paintArg == context.fillPaint;
+            // In legacy non-dual-tone mode the main body already uses fillColor.
+            // The low-battery overlay uses levelColor, so recolor only levelPath.
+            // scaledBolt is deliberately excluded in both modes.
+            boolean nonDualCriticalFill = !context.dualTone
+                    && path == context.levelPath && paintArg == context.fillPaint;
+            if (!dualToneBody && !nonDualCriticalFill) {
                 return chain.proceed();
             }
 
@@ -357,7 +362,7 @@ public final class BatteryEntry extends XposedModule {
                 Object result = chain.proceed();
                 if (DUAL_TONE_DRAW_LOGGED.put(
                         context.drawable, Boolean.TRUE) == null) {
-                    Log.i(TAG, "DUAL_TONE_BODY_DRAW_RECOLORED level="
+                    Log.i(TAG, "BATTERY_BODY_PATH_RECOLORED dualTone=" + context.dualTone + " level="
                             + context.level + " color="
                             + String.format(java.util.Locale.ROOT,
                             "#%08X", batteryColor)
@@ -380,14 +385,17 @@ public final class BatteryEntry extends XposedModule {
             Field dualToneField = findField(type, "dualTone");
             Field levelField = findField(type, "batteryLevel");
             Field unifiedPathField = findField(type, "unifiedPath");
+            Field levelPathField = findField(type, "levelPath");
             Field fillPaintField = findField(type, "fillPaint");
 
             if (dualToneField == null || levelField == null
-                    || unifiedPathField == null || fillPaintField == null) {
+                    || unifiedPathField == null || levelPathField == null
+                    || fillPaintField == null) {
                 Log.e(TAG, "DUAL_TONE_DRAW_CONTEXT_FIELDS_MISSING"
                         + " dualTone=" + (dualToneField != null)
                         + " batteryLevel=" + (levelField != null)
                         + " unifiedPath=" + (unifiedPathField != null)
+                        + " levelPath=" + (levelPathField != null)
                         + " fillPaint=" + (fillPaintField != null));
                 return null;
             }
@@ -395,16 +403,19 @@ public final class BatteryEntry extends XposedModule {
             dualToneField.setAccessible(true);
             levelField.setAccessible(true);
             unifiedPathField.setAccessible(true);
+            levelPathField.setAccessible(true);
             fillPaintField.setAccessible(true);
 
             boolean dualTone = dualToneField.getBoolean(drawable);
             int level = Math.max(0, Math.min(100, levelField.getInt(drawable)));
             Object path = unifiedPathField.get(drawable);
+            Object lowLevelPath = levelPathField.get(drawable);
             Object paint = fillPaintField.get(drawable);
-            if (!(path instanceof Path) || !(paint instanceof Paint)) return null;
+            if (!(path instanceof Path) || !(lowLevelPath instanceof Path)
+                    || !(paint instanceof Paint)) return null;
 
-            return new DrawContext(drawable, (Path) path, (Paint) paint,
-                    dualTone, level);
+            return new DrawContext(drawable, (Path) path, (Path) lowLevelPath,
+                    (Paint) paint, dualTone, level);
         } catch (Throwable error) {
             Log.e(TAG, "DUAL_TONE_DRAW_CONTEXT_FAILED", error);
             return null;
