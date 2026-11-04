@@ -62,11 +62,8 @@ public final class BatteryEntry extends XposedModule {
         String packageName = param.getPackageName();
         Log.i(TAG, "PACKAGE_LOADED package=" + packageName
                 + " first=" + param.isFirstPackage());
-        if (!SYSTEM_UI.equals(packageName)) return;
-        ClassLoader loader = param.getDefaultClassLoader();
-        Log.i(TAG, "SYSTEMUI_CLASSLOADER source=package_loaded loader="
-                + loaderIdentity(loader));
-        installHooks(loader, "package_loaded");
+        // Match the proven notification plugin lifecycle: install only in onPackageReady().
+        // The early package-loaded classloader may not be the final SystemUI loader.
     }
 
     @Override
@@ -105,7 +102,7 @@ public final class BatteryEntry extends XposedModule {
             int installed = 0;
             Method setLevel = findMethod(drawable, "setBatteryLevel", int.class);
             if (setLevel != null) {
-                hook(setLevel).setId("aquosr7-battery-fill-level-v104").intercept(chain -> {
+                hook(setLevel).setId("aquosr7-battery-fill-level-v105").intercept(chain -> {
                     Object result = chain.proceed();
                     applyBatteryFill(chain.getThisObject());
                     return result;
@@ -119,7 +116,7 @@ public final class BatteryEntry extends XposedModule {
             Method setColors = findMethod(drawable, "setColors",
                     int.class, int.class, int.class);
             if (setColors != null) {
-                hook(setColors).setId("aquosr7-battery-fill-colors-v104").intercept(chain -> {
+                hook(setColors).setId("aquosr7-battery-fill-colors-v105").intercept(chain -> {
                     Object result = chain.proceed();
                     applyBatteryFill(chain.getThisObject());
                     return result;
@@ -132,7 +129,7 @@ public final class BatteryEntry extends XposedModule {
 
             Method draw = findMethod(drawable, "draw", Canvas.class);
             if (draw != null) {
-                hook(draw).setId("aquosr7-battery-dualtone-draw-context-v104")
+                hook(draw).setId("aquosr7-battery-dualtone-draw-context-v105")
                         .intercept(chain -> {
                             Object target = chain.getThisObject();
                             DrawContext previous = ACTIVE_DRAW.get();
@@ -167,7 +164,7 @@ public final class BatteryEntry extends XposedModule {
 
     private void installCanvasFillHook() throws Exception {
         Method drawPath = Canvas.class.getDeclaredMethod("drawPath", Path.class, Paint.class);
-        hook(drawPath).setId("aquosr7-battery-dualtone-canvas-fill-v104")
+        hook(drawPath).setId("aquosr7-battery-dualtone-canvas-fill-v105")
                 .intercept(chain -> {
                     DrawContext context = ACTIVE_DRAW.get();
                     if (context == null || !context.dualTone
