@@ -29,3 +29,5 @@ jobs:
           name: AQUOS-R7-Colored-Notifications-v1.0.17
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+# Rebuild latest VoLTE and VoWiFi tint correction.
