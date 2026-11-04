@@ -9,7 +9,7 @@ import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 
 /**
- * AQUOS R7 battery fill-color hook.
+ * AQUOS R7 battery fill-color hook. Build validation is run by battery-build.yml.
  *
  * Only replaces the integer returned by ThemedBatteryDrawable's level-color
  * calculation. It does not replace drawables, animation state, charging bolt,
