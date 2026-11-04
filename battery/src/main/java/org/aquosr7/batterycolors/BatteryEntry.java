@@ -202,36 +202,55 @@ public final class BatteryEntry extends XposedModule {
     }
 
     private void installBatteryMeterViewProbe(ClassLoader loader) {
-        try {
-            Class<?> batteryView = loader.loadClass("com.android.systemui.BatteryMeterView");
-            Method levelChanged = findMethod(batteryView, "onBatteryLevelChanged",
-                    int.class, boolean.class, boolean.class);
-            if (levelChanged == null) {
-                Log.w(TAG, "BATTERY_VIEW_PROBE_METHOD_MISSING class="
-                        + batteryView.getName()
-                        + " method=onBatteryLevelChanged(int,boolean,boolean)");
-                return;
-            }
+        // Android 14 SystemUI moved BatteryMeterView into com.android.systemui.battery.
+        // Keep the legacy class name as a compatibility fallback for vendor forks.
+        String[] classNames = {
+                "com.android.systemui.battery.BatteryMeterView",
+                "com.android.systemui.BatteryMeterView"
+        };
+        boolean installed = false;
+        for (String className : classNames) {
+            try {
+                Class<?> batteryView = loader.loadClass(className);
+                Method levelChanged = findMethod(batteryView, "onBatteryLevelChanged",
+                        int.class, boolean.class);
+                int argumentCount = 2;
+                if (levelChanged == null) {
+                    levelChanged = findMethod(batteryView, "onBatteryLevelChanged",
+                            int.class, boolean.class, boolean.class);
+                    argumentCount = 3;
+                }
+                if (levelChanged == null) {
+                    Log.w(TAG, "BATTERY_VIEW_PROBE_METHOD_MISSING class="
+                            + batteryView.getName());
+                    continue;
+                }
 
-            hook(levelChanged).setId("aquosr7-battery-view-probe-v106")
-                    .intercept(chain -> {
-                        Object result = chain.proceed();
-                        Object view = chain.getThisObject();
-                        if (BATTERY_VIEW_LOGGED.put(view, Boolean.TRUE) == null) {
-                            logBatteryViewDrawable(view, (Integer) chain.getArg(0),
-                                    (Boolean) chain.getArg(1),
-                                    (Boolean) chain.getArg(2));
-                        }
-                        return result;
-                    });
-            Log.i(TAG, "BATTERY_VIEW_PROBE_INSTALLED class="
-                    + batteryView.getName()
-                    + " method=" + levelChanged.toGenericString());
-        } catch (ClassNotFoundException error) {
-            Log.w(TAG, "BATTERY_VIEW_CLASS_MISSING expected="
-                    + "com.android.systemui.BatteryMeterView", error);
-        } catch (Throwable error) {
-            Log.e(TAG, "BATTERY_VIEW_PROBE_FAILED", error);
+                final int count = argumentCount;
+                hook(levelChanged).setId("aquosr7-battery-view-probe-v107")
+                        .intercept(chain -> {
+                            Object result = chain.proceed();
+                            Object view = chain.getThisObject();
+                            int level = (Integer) chain.getArg(0);
+                            boolean plugged = (Boolean) chain.getArg(1);
+                            boolean charging = count == 3
+                                    ? (Boolean) chain.getArg(2) : plugged;
+                            logBatteryViewDrawable(view, level, plugged, charging);
+                            return result;
+                        });
+                Log.i(TAG, "BATTERY_VIEW_PROBE_INSTALLED class="
+                        + batteryView.getName()
+                        + " method=" + levelChanged.toGenericString());
+                installed = true;
+                break;
+            } catch (ClassNotFoundException error) {
+                Log.w(TAG, "BATTERY_VIEW_CLASS_MISSING expected=" + className);
+            } catch (Throwable error) {
+                Log.e(TAG, "BATTERY_VIEW_PROBE_FAILED class=" + className, error);
+            }
+        }
+        if (!installed) {
+            Log.e(TAG, "BATTERY_VIEW_PROBE_NOT_INSTALLED");
         }
     }
 
