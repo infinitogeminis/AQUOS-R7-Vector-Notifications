@@ -1,0 +1,45 @@
+name: Build AQUOS R7 Battery Colors Vector APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [ feature/aquos-r7-battery-colors ]
+    paths:
+      - 'battery/**'
+      - 'settings.gradle'
+      - 'build.gradle'
+      - 'gradle.properties'
+      - '.github/workflows/battery-build.yml'
+jobs:
+  build-battery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android SDK platform
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build standalone battery module
+        run: gradle --no-daemon :battery:assembleDebug
+      - name: Verify APK and metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="battery/build/outputs/apk/debug/battery-debug.apk"
+          test -s "$APK"
+          unzip -t "$APK"
+          sha256sum "$APK"
+          unzip -p "$APK" assets/xposed_init 2>/dev/null || true
+          aapt dump badging "$APK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AQUOS-R7-Battery-Colors-Vector-v1.0.0
+          path: battery/build/outputs/apk/debug/battery-debug.apk
+          if-no-files-found: error
