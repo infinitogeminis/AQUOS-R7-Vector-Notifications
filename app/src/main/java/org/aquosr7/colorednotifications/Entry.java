@@ -50,6 +50,9 @@ public final class Entry extends XposedModule {
         Log.i(TAG, "PACKAGE_READY package=" + param.getPackageName());
         if (!SYSTEM_UI.equals(param.getPackageName())) return;
 
+        // Battery hook is independent: a missing notification hook must not block it.
+        installBatteryColorHook(param.getClassLoader());
+
         try {
             Class<?> iconView = param.getClassLoader().loadClass(ICON_VIEW);
             installApplicationIconHook(iconView);
@@ -59,6 +62,48 @@ public final class Entry extends XposedModule {
         } catch (Throwable error) {
             Log.e(TAG, "SystemUI hook initialization failed", error);
         }
+    }
+
+    /**
+     * Recolors the stock AQUOS R7 battery fill by charge level. The original
+     * drawable, charging animation, bolt, dimensions and status-bar layout stay intact.
+     */
+    private void installBatteryColorHook(ClassLoader loader) {
+        try {
+            Class<?> drawable = loader.loadClass(
+                    "com.android.settingslib.graph.ThemedBatteryDrawable");
+            Method method = findMethod(drawable, "batteryColorForLevel", int.class);
+            if (method == null) {
+                throw new NoSuchMethodException(
+                        "ThemedBatteryDrawable.batteryColorForLevel(int)");
+            }
+            if (method.getReturnType() != int.class) {
+                throw new NoSuchMethodException(
+                        "batteryColorForLevel(int) does not return int");
+            }
+
+            hook(method).setId("aquosr7-vector-battery-level-color").intercept(chain -> {
+                Object rawLevel = chain.getArg(0);
+                if (!(rawLevel instanceof Integer)) return chain.proceed();
+
+                int level = Math.max(0, Math.min(100, (Integer) rawLevel));
+                int color = batteryColorForLevel(level);
+                Log.d(TAG, "BATTERY_COLOR_HOOK level=" + level
+                        + " color=#" + Integer.toHexString(color));
+                return color;
+            });
+            Log.i(TAG, "BATTERY_COLOR_HOOK_INSTALLED "
+                    + "ThemedBatteryDrawable.batteryColorForLevel(int)");
+        } catch (Throwable error) {
+            Log.e(TAG, "BATTERY_COLOR_HOOK_FAILED", error);
+        }
+    }
+
+    private static int batteryColorForLevel(int level) {
+        if (level >= 76) return 0xFF34C759; // green
+        if (level >= 51) return 0xFFFFD60A; // yellow
+        if (level >= 21) return 0xFFFF9500; // orange
+        return 0xFFFF3B30;                  // red
     }
 
     private void installApplicationIconHook(Class<?> iconView) {
