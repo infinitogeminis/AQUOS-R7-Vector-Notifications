@@ -33,6 +33,8 @@ public final class BatteryEntry extends XposedModule {
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Object, Boolean> DRAW_DIAGNOSTIC_LOGGED =
             Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<Object, Boolean> BATTERY_VIEW_LOGGED =
+            Collections.synchronizedMap(new WeakHashMap<>());
     private static final ThreadLocal<DrawContext> ACTIVE_DRAW =
             new ThreadLocal<>();
 
@@ -101,6 +103,8 @@ public final class BatteryEntry extends XposedModule {
         }
 
         try {
+            installBatteryMeterViewProbe(classLoader);
+
             Class<?> drawable = classLoader.loadClass(DRAWABLE_CLASS);
             Log.i(TAG, "DRAWABLE_CLASS_FOUND name=" + drawable.getName()
                     + " phase=" + phase);
@@ -191,6 +195,61 @@ public final class BatteryEntry extends XposedModule {
                     + " class=" + drawable.getName() + " phase=" + phase);
         } catch (Throwable error) {
             Log.e(TAG, "BATTERY_FILL_HOOKS_FAILED phase=" + phase, error);
+        }
+    }
+
+    private void installBatteryMeterViewProbe(ClassLoader loader) {
+        try {
+            Class<?> batteryView = loader.loadClass("com.android.systemui.BatteryMeterView");
+            Method levelChanged = findMethod(batteryView, "onBatteryLevelChanged",
+                    int.class, boolean.class, boolean.class);
+            if (levelChanged == null) {
+                Log.w(TAG, "BATTERY_VIEW_PROBE_METHOD_MISSING class="
+                        + batteryView.getName()
+                        + " method=onBatteryLevelChanged(int,boolean,boolean)");
+                return;
+            }
+
+            hook(levelChanged).setId("aquosr7-battery-view-probe-v106")
+                    .intercept(chain -> {
+                        Object result = chain.proceed();
+                        Object view = chain.getThisObject();
+                        if (BATTERY_VIEW_LOGGED.put(view, Boolean.TRUE) == null) {
+                            logBatteryViewDrawable(view, (Integer) chain.getArg(0),
+                                    (Boolean) chain.getArg(1),
+                                    (Boolean) chain.getArg(2));
+                        }
+                        return result;
+                    });
+            Log.i(TAG, "BATTERY_VIEW_PROBE_INSTALLED class="
+                    + batteryView.getName()
+                    + " method=" + levelChanged.toGenericString());
+        } catch (ClassNotFoundException error) {
+            Log.w(TAG, "BATTERY_VIEW_CLASS_MISSING expected="
+                    + "com.android.systemui.BatteryMeterView", error);
+        } catch (Throwable error) {
+            Log.e(TAG, "BATTERY_VIEW_PROBE_FAILED", error);
+        }
+    }
+
+    private static void logBatteryViewDrawable(Object view, int level,
+                                               boolean plugged, boolean charging) {
+        try {
+            Field drawableField = findField(view.getClass(), "mDrawable");
+            if (drawableField == null) {
+                Log.e(TAG, "BATTERY_VIEW_DRAWABLE_FIELD_MISSING viewClass="
+                        + view.getClass().getName());
+                return;
+            }
+            drawableField.setAccessible(true);
+            Object drawable = drawableField.get(view);
+            Log.i(TAG, "BATTERY_VIEW_STATE viewClass=" + view.getClass().getName()
+                    + " drawableClass="
+                    + (drawable == null ? "null" : drawable.getClass().getName())
+                    + " level=" + level + " plugged=" + plugged
+                    + " charging=" + charging);
+        } catch (Throwable error) {
+            Log.e(TAG, "BATTERY_VIEW_STATE_READ_FAILED", error);
         }
     }
 
