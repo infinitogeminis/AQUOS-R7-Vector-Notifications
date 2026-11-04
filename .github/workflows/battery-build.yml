@@ -28,7 +28,7 @@ jobs:
           gradle-version: '8.7'
       - name: Build separate battery plugin
         run: gradle --no-daemon :battery:assembleDebug
-      - name: Verify APK package and archive
+      - name: Verify APK package, version and Vector metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -36,11 +36,25 @@ jobs:
           test -s "$APK"
           unzip -t "$APK"
           sha256sum "$APK"
+
           BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
           echo "$BADGING"
-          grep -F "package: name='org.aquosr7.batterycolors'" <<< "$BADGING"
+          grep -F "package: name='org.aquosr7.batterycolors' versionCode='3' versionName='1.0.2'" <<< "$BADGING"
+
+          unzip -p "$APK" META-INF/xposed/module.prop | tee /tmp/module.prop
+          unzip -p "$APK" META-INF/xposed/java_init.list | tee /tmp/java_init.list
+          unzip -p "$APK" META-INF/xposed/scope.list | tee /tmp/scope.list
+
+          grep -Fx 'minApiVersion=102' /tmp/module.prop
+          grep -Fx 'targetApiVersion=102' /tmp/module.prop
+          grep -Fx 'staticScope=true' /tmp/module.prop
+          grep -Fx 'org.aquosr7.batterycolors.BatteryEntry' /tmp/java_init.list
+          grep -Fx 'com.android.systemui' /tmp/scope.list
+
+          unzip -l "$APK" | grep -F 'org/aquosr7/batterycolors/BatteryEntry.class' || true
+          unzip -l "$APK" | grep -F 'classes.dex'
       - uses: actions/upload-artifact@v4
         with:
-          name: AQUOS-R7-Battery-Colors-Vector-v1.0.1
+          name: AQUOS-R7-Battery-Colors-Vector-v1.0.2
           path: battery/build/outputs/apk/debug/battery-debug.apk
           if-no-files-found: error
