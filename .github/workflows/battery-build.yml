@@ -39,7 +39,7 @@ jobs:
 
           BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
           echo "$BADGING"
-          grep -F "package: name='org.aquosr7.batterycolors' versionCode='5' versionName='1.0.4'" <<< "$BADGING"
+          grep -F "package: name='org.aquosr7.batterycolors' versionCode='6' versionName='1.0.5'" <<< "$BADGING"
 
           unzip -p "$APK" META-INF/xposed/module.prop | tee /tmp/module.prop
           unzip -p "$APK" META-INF/xposed/java_init.list | tee /tmp/java_init.list
@@ -54,6 +54,6 @@ jobs:
           unzip -l "$APK" | grep -F 'classes.dex'
       - uses: actions/upload-artifact@v4
         with:
-          name: AQUOS-R7-Battery-Colors-Vector-v1.0.4
+          name: AQUOS-R7-Battery-Colors-Vector-v1.0.5
           path: battery/build/outputs/apk/debug/battery-debug.apk
           if-no-files-found: error
