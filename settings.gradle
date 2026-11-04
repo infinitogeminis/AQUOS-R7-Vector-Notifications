@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = 'AQUOS-R7-Colored-Notifications'
-include ':app'
+include ':app', ':battery'
