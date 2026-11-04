@@ -259,21 +259,29 @@ public final class BatteryEntry extends XposedModule {
     private int installCanvasFillHook(ClassLoader loader) {
         int installed = 0;
 
-        // Hardware-accelerated SystemUI views draw through RecordingCanvas.
-        // Android 14 overrides drawPath() there with a final implementation,
-        // so hooking Canvas.drawPath() alone does not intercept that dispatch.
-        try {
-            Class<?> recordingCanvas = loader.loadClass("android.graphics.RecordingCanvas");
-            Method recordingDrawPath = recordingCanvas.getDeclaredMethod(
-                    "drawPath", Path.class, Paint.class);
-            installDrawPathHook(recordingDrawPath,
-                    "aquosr7-battery-dualtone-recording-canvas-fill-v106");
-            installed++;
-            Log.i(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_INSTALLED class="
-                    + recordingCanvas.getName()
-                    + " signature=" + recordingDrawPath.toGenericString());
-        } catch (Throwable error) {
-            Log.e(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_FAILED", error);
+        // Android 14 uses android.view.RecordingCanvas for View drawing.
+        // Newer platform revisions also expose android.graphics.RecordingCanvas.
+        // Both override drawPath(); the Android 14 override is final, so the
+        // base Canvas hook alone cannot intercept hardware-accelerated drawing.
+        for (String recordingCanvasName : new String[]{
+                "android.view.RecordingCanvas",
+                "android.graphics.RecordingCanvas"}) {
+            try {
+                Class<?> recordingCanvas = loader.loadClass(recordingCanvasName);
+                Method recordingDrawPath = recordingCanvas.getDeclaredMethod(
+                        "drawPath", Path.class, Paint.class);
+                String hookId = "aquosr7-battery-dualtone-"
+                        + recordingCanvasName.substring(recordingCanvasName.lastIndexOf('.') + 1)
+                        .toLowerCase(java.util.Locale.ROOT) + "-fill-v106";
+                installDrawPathHook(recordingDrawPath, hookId);
+                installed++;
+                Log.i(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_INSTALLED class="
+                        + recordingCanvas.getName()
+                        + " signature=" + recordingDrawPath.toGenericString());
+            } catch (Throwable error) {
+                Log.w(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_UNAVAILABLE class="
+                        + recordingCanvasName, error);
+            }
         }
 
         try {
