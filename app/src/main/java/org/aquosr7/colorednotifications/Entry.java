@@ -65,45 +65,95 @@ public final class Entry extends XposedModule {
     }
 
     /**
-     * Recolors the stock AQUOS R7 battery fill by charge level. The original
-     * drawable, charging animation, bolt, dimensions and status-bar layout stay intact.
+     * Recolors only the main fill paint of the stock ThemedBatteryDrawable.
+     * levelColor and fillColorStrokePaint are deliberately left untouched:
+     * on the stock draw path they control the charging bolt and outline.
      */
+    private static final Map<Object, Integer> BATTERY_LAST_LOGGED_LEVEL =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
     private void installBatteryColorHook(ClassLoader loader) {
         try {
             Class<?> drawable = loader.loadClass(
                     "com.android.settingslib.graph.ThemedBatteryDrawable");
-            Method method = findMethod(drawable, "batteryColorForLevel", int.class);
-            if (method == null) {
+            Method setLevel = findMethod(drawable, "setBatteryLevel", int.class);
+            Method setColors = findMethod(drawable, "setColors",
+                    int.class, int.class, int.class);
+            if (setLevel == null || setColors == null) {
                 throw new NoSuchMethodException(
-                        "ThemedBatteryDrawable.batteryColorForLevel(int)");
-            }
-            if (method.getReturnType() != int.class) {
-                throw new NoSuchMethodException(
-                        "batteryColorForLevel(int) does not return int");
+                        "ThemedBatteryDrawable.setBatteryLevel/setColors");
             }
 
-            hook(method).setId("aquosr7-vector-battery-level-color").intercept(chain -> {
-                Object rawLevel = chain.getArg(0);
-                if (!(rawLevel instanceof Integer)) return chain.proceed();
-
-                int level = Math.max(0, Math.min(100, (Integer) rawLevel));
-                int color = batteryColorForLevel(level);
-                Log.d(TAG, "BATTERY_COLOR_HOOK level=" + level
-                        + " color=#" + Integer.toHexString(color));
-                return color;
+            hook(setLevel).setId("aquosr7-vector-battery-fill-level").intercept(chain -> {
+                Object result = chain.proceed();
+                applyBatteryFill(chain.getThisObject());
+                return result;
             });
-            Log.i(TAG, "BATTERY_COLOR_HOOK_INSTALLED "
-                    + "ThemedBatteryDrawable.batteryColorForLevel(int)");
+            hook(setColors).setId("aquosr7-vector-battery-fill-colors").intercept(chain -> {
+                Object result = chain.proceed();
+                applyBatteryFill(chain.getThisObject());
+                return result;
+            });
+
+            Log.i(TAG, "BATTERY_FILL_HOOKS_INSTALLED class=" + drawable.getName()
+                    + " methods=setBatteryLevel(int),setColors(int,int,int)");
         } catch (Throwable error) {
-            Log.e(TAG, "BATTERY_COLOR_HOOK_FAILED", error);
+            Log.e(TAG, "BATTERY_FILL_HOOKS_FAILED", error);
+        }
+    }
+
+    private static void applyBatteryFill(Object drawable) {
+        if (drawable == null) return;
+        try {
+            Class<?> type = drawable.getClass();
+            Field dualToneField = findField(type, "dualTone");
+            Field levelField = findField(type, "batteryLevel");
+            Field fillColorField = findField(type, "fillColor");
+            Field fillPaintField = findField(type, "fillPaint");
+            if (dualToneField == null || levelField == null
+                    || fillColorField == null || fillPaintField == null) {
+                throw new NoSuchFieldException(
+                        "Expected ThemedBatteryDrawable fill fields are unavailable");
+            }
+
+            dualToneField.setAccessible(true);
+            levelField.setAccessible(true);
+            fillColorField.setAccessible(true);
+            fillPaintField.setAccessible(true);
+
+            // Dual-tone drawing uses levelColor as the clipped fill and shares
+            // that paint with the charging bolt. Leave it untouched rather
+            // than accidentally recoloring the bolt.
+            if (dualToneField.getBoolean(drawable)) {
+                Log.w(TAG, "BATTERY_FILL_DUAL_TONE_UNSUPPORTED_SAFE_SKIP");
+                return;
+            }
+
+            int level = Math.max(0, Math.min(100, levelField.getInt(drawable)));
+            int color = batteryColorForLevel(level);
+            fillColorField.setInt(drawable, color);
+
+            Object paint = fillPaintField.get(drawable);
+            if (paint == null) throw new IllegalStateException("fillPaint is null");
+            Method setColor = findMethod(paint.getClass(), "setColor", int.class);
+            if (setColor == null) throw new NoSuchMethodException("Paint.setColor(int)");
+            setColor.invoke(paint, color);
+
+            Integer previous = BATTERY_LAST_LOGGED_LEVEL.put(drawable, level);
+            if (previous == null || previous.intValue() != level) {
+                Log.i(TAG, "BATTERY_FILL_APPLIED level=" + level
+                        + " color=#" + String.format(java.util.Locale.ROOT, "%08X", color));
+            }
+        } catch (Throwable error) {
+            Log.e(TAG, "BATTERY_FILL_APPLY_FAILED", error);
         }
     }
 
     private static int batteryColorForLevel(int level) {
-        if (level >= 76) return 0xFF34C759; // green
-        if (level >= 51) return 0xFFFFD60A; // yellow
-        if (level >= 21) return 0xFFFF9500; // orange
-        return 0xFFFF3B30;                  // red
+        if (level >= 76) return 0xFF34C759;
+        if (level >= 51) return 0xFFFFD60A;
+        if (level >= 21) return 0xFFFF9500;
+        return 0xFFFF3B30;
     }
 
     private void installApplicationIconHook(Class<?> iconView) {
