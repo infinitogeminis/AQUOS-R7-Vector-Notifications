@@ -31,6 +31,8 @@ public final class BatteryEntry extends XposedModule {
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Object, Boolean> DUAL_TONE_DRAW_LOGGED =
             Collections.synchronizedMap(new WeakHashMap<>());
+    private static final Map<Object, Boolean> DRAW_DIAGNOSTIC_LOGGED =
+            Collections.synchronizedMap(new WeakHashMap<>());
     private static final ThreadLocal<DrawContext> ACTIVE_DRAW =
             new ThreadLocal<>();
 
@@ -40,6 +42,8 @@ public final class BatteryEntry extends XposedModule {
         final Paint fillPaint;
         final boolean dualTone;
         final int level;
+        int canvasDrawPathCalls;
+        int matchingBodyCalls;
 
         DrawContext(Object drawable, Path unifiedPath, Paint fillPaint,
                     boolean dualTone, int level) {
@@ -54,7 +58,9 @@ public final class BatteryEntry extends XposedModule {
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
         Log.i(TAG, "MODULE_LOADED process=" + param.getProcessName()
-                + " systemServer=" + param.isSystemServer());
+                + " systemServer=" + param.isSystemServer()
+                + " framework=" + getFrameworkName()
+                + " api=" + getApiVersion());
     }
 
     @Override
@@ -102,7 +108,7 @@ public final class BatteryEntry extends XposedModule {
             int installed = 0;
             Method setLevel = findMethod(drawable, "setBatteryLevel", int.class);
             if (setLevel != null) {
-                hook(setLevel).setId("aquosr7-battery-fill-level-v105").intercept(chain -> {
+                hook(setLevel).setId("aquosr7-battery-fill-level-v106").intercept(chain -> {
                     Object result = chain.proceed();
                     applyBatteryFill(chain.getThisObject());
                     return result;
@@ -116,7 +122,7 @@ public final class BatteryEntry extends XposedModule {
             Method setColors = findMethod(drawable, "setColors",
                     int.class, int.class, int.class);
             if (setColors != null) {
-                hook(setColors).setId("aquosr7-battery-fill-colors-v105").intercept(chain -> {
+                hook(setColors).setId("aquosr7-battery-fill-colors-v106").intercept(chain -> {
                     Object result = chain.proceed();
                     applyBatteryFill(chain.getThisObject());
                     return result;
@@ -129,13 +135,39 @@ public final class BatteryEntry extends XposedModule {
 
             Method draw = findMethod(drawable, "draw", Canvas.class);
             if (draw != null) {
-                hook(draw).setId("aquosr7-battery-dualtone-draw-context-v105")
+                boolean deoptimized = false;
+                try {
+                    // Canvas.drawPath is called from this method. Deoptimize its caller
+                    // so ART cannot inline the Canvas call past our interception point.
+                    deoptimized = deoptimize(draw);
+                } catch (Throwable error) {
+                    Log.e(TAG, "DRAW_CALLER_DEOPTIMIZE_FAILED", error);
+                }
+                Log.i(TAG, "DRAW_CALLER_DEOPTIMIZED result=" + deoptimized
+                        + " method=" + draw.toGenericString());
+
+                hook(draw).setId("aquosr7-battery-dualtone-draw-context-v106")
                         .intercept(chain -> {
                             Object target = chain.getThisObject();
                             DrawContext previous = ACTIVE_DRAW.get();
-                            ACTIVE_DRAW.set(createDrawContext(target));
+                            DrawContext context = createDrawContext(target);
+                            ACTIVE_DRAW.set(context);
                             try {
-                                return chain.proceed();
+                                Object result = chain.proceed();
+                                if (DRAW_DIAGNOSTIC_LOGGED.put(
+                                        target, Boolean.TRUE) == null) {
+                                    Log.i(TAG, "DRAW_DIAGNOSTIC class="
+                                            + target.getClass().getName()
+                                            + " context=" + (context != null)
+                                            + (context == null ? "" :
+                                            " dualTone=" + context.dualTone
+                                            + " level=" + context.level
+                                            + " canvasDrawPathCalls="
+                                            + context.canvasDrawPathCalls
+                                            + " bodyMatches="
+                                            + context.matchingBodyCalls));
+                                }
+                                return result;
                             } finally {
                                 if (previous == null) ACTIVE_DRAW.remove();
                                 else ACTIVE_DRAW.set(previous);
@@ -164,15 +196,18 @@ public final class BatteryEntry extends XposedModule {
 
     private void installCanvasFillHook() throws Exception {
         Method drawPath = Canvas.class.getDeclaredMethod("drawPath", Path.class, Paint.class);
-        hook(drawPath).setId("aquosr7-battery-dualtone-canvas-fill-v105")
+        hook(drawPath).setId("aquosr7-battery-dualtone-canvas-fill-v106")
                 .intercept(chain -> {
                     DrawContext context = ACTIVE_DRAW.get();
-                    if (context == null || !context.dualTone
+                    if (context == null) return chain.proceed();
+                    context.canvasDrawPathCalls++;
+                    if (!context.dualTone
                             || chain.getArg(0) != context.unifiedPath
                             || chain.getArg(1) != context.fillPaint) {
                         return chain.proceed();
                     }
 
+                    context.matchingBodyCalls++;
                     Paint paint = context.fillPaint;
                     int originalColor = paint.getColor();
                     int batteryColor = colorForLevel(context.level);
@@ -192,7 +227,8 @@ public final class BatteryEntry extends XposedModule {
                         paint.setColor(originalColor);
                     }
                 });
-        Log.i(TAG, "HOOK_INSTALLED method=Canvas.drawPath(Path,Paint)");
+        Log.i(TAG, "HOOK_INSTALLED method=Canvas.drawPath(Path,Paint)"
+                + " signature=" + drawPath.toGenericString());
     }
 
     private static DrawContext createDrawContext(Object drawable) {
