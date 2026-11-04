@@ -265,9 +265,28 @@ public final class BatteryEntry extends XposedModule {
             }
             drawableField.setAccessible(true);
             Object drawable = drawableField.get(view);
+            StringBuilder chain = new StringBuilder();
+            Object current = drawable;
+            for (int depth = 0; current != null && depth < 8; depth++) {
+                if (depth > 0) chain.append(" -> ");
+                chain.append(current.getClass().getName());
+                if (DRAWABLE_CLASS.equals(current.getClass().getName())) {
+                    // Apply directly to the inner drawable as well as through its hooks.
+                    applyBatteryFill(current);
+                }
+                Method unwrap = findMethod(current.getClass(), "getDrawable");
+                if (unwrap == null) break;
+                try {
+                    Object next = unwrap.invoke(current);
+                    if (next == current) break;
+                    current = next;
+                } catch (Throwable error) {
+                    Log.w(TAG, "BATTERY_DRAWABLE_UNWRAP_FAILED depth=" + depth, error);
+                    break;
+                }
+            }
             Log.i(TAG, "BATTERY_VIEW_STATE viewClass=" + view.getClass().getName()
-                    + " drawableClass="
-                    + (drawable == null ? "null" : drawable.getClass().getName())
+                    + " drawableChain=" + chain
                     + " level=" + level + " plugged=" + plugged
                     + " charging=" + charging);
         } catch (Throwable error) {
