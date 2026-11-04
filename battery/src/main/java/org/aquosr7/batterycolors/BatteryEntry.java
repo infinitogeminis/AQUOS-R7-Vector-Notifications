@@ -13,11 +13,10 @@ import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 
 /**
- * Separate Vector plugin for AQUOS R7 battery fill colors.
+ * Standalone Vector plugin for AQUOS R7 battery fill colors.
  *
- * Changes only ThemedBatteryDrawable.fillColor and fillPaint in the
- * non-dual-tone draw path. It deliberately does not touch levelColor
- * (charging bolt), outline paint, drawable geometry, or animation state.
+ * This diagnostic release logs every lifecycle stage so that a missing
+ * SystemUI hook can be distinguished from a drawable-specific limitation.
  */
 public final class BatteryEntry extends XposedModule {
     private static final String TAG = "AQUOSR7BatteryColors";
@@ -37,17 +36,27 @@ public final class BatteryEntry extends XposedModule {
 
     @Override
     public void onPackageReady(PackageReadyParam param) {
-        if (!SYSTEM_UI.equals(param.getPackageName())) return;
+        String packageName = param.getPackageName();
+        Log.i(TAG, "PACKAGE_READY package=" + packageName);
+
+        if (!SYSTEM_UI.equals(packageName)) {
+            return;
+        }
 
         try {
-            Class<?> drawable = param.getClassLoader().loadClass(DRAWABLE_CLASS);
+            ClassLoader classLoader = param.getClassLoader();
+            Class<?> drawable = classLoader.loadClass(DRAWABLE_CLASS);
+            Log.i(TAG, "DRAWABLE_CLASS_FOUND name=" + drawable.getName());
+
             Method setLevel = findMethod(drawable, "setBatteryLevel", int.class);
             Method setColors = findMethod(drawable, "setColors",
                     int.class, int.class, int.class);
 
             if (setLevel == null || setColors == null) {
                 throw new NoSuchMethodException(
-                        "ThemedBatteryDrawable.setBatteryLevel/setColors");
+                        "ThemedBatteryDrawable.setBatteryLevel/setColors"
+                                + " setBatteryLevelFound=" + (setLevel != null)
+                                + " setColorsFound=" + (setColors != null));
             }
 
             hook(setLevel).setId("aquosr7-battery-fill-level").intercept(chain -> {
@@ -55,17 +64,18 @@ public final class BatteryEntry extends XposedModule {
                 applyBatteryFill(chain.getThisObject());
                 return result;
             });
+            Log.i(TAG, "HOOK_INSTALLED method=setBatteryLevel(int)");
 
             hook(setColors).setId("aquosr7-battery-fill-colors").intercept(chain -> {
                 Object result = chain.proceed();
                 applyBatteryFill(chain.getThisObject());
                 return result;
             });
+            Log.i(TAG, "HOOK_INSTALLED method=setColors(int,int,int)");
 
-            Log.i(TAG, "BATTERY_FILL_HOOKS_INSTALLED class=" + drawable.getName()
-                    + " methods=setBatteryLevel(int),setColors(int,int,int)");
+            Log.i(TAG, "BATTERY_FILL_HOOKS_INSTALLED class=" + drawable.getName());
         } catch (Throwable error) {
-            Log.e(TAG, "BATTERY_FILL_HOOKS_FAILED", error);
+            Log.e(TAG, "BATTERY_FILL_HOOKS_FAILED package=" + packageName, error);
         }
     }
 
@@ -82,7 +92,11 @@ public final class BatteryEntry extends XposedModule {
             if (dualToneField == null || levelField == null
                     || fillColorField == null || fillPaintField == null) {
                 throw new NoSuchFieldException(
-                        "Expected ThemedBatteryDrawable fill fields are unavailable");
+                        "Expected fill fields unavailable"
+                                + " dualTone=" + (dualToneField != null)
+                                + " batteryLevel=" + (levelField != null)
+                                + " fillColor=" + (fillColorField != null)
+                                + " fillPaint=" + (fillPaintField != null));
             }
 
             dualToneField.setAccessible(true);
@@ -90,8 +104,6 @@ public final class BatteryEntry extends XposedModule {
             fillColorField.setAccessible(true);
             fillPaintField.setAccessible(true);
 
-            // In dual-tone mode the stock renderer uses levelColor for the
-            // clipped body fill and the charging bolt. Do not recolor the bolt.
             if (dualToneField.getBoolean(drawable)) {
                 if (DUAL_TONE_WARNED.put(drawable, Boolean.TRUE) == null) {
                     Log.w(TAG, "BATTERY_FILL_DUAL_TONE_UNSUPPORTED_SAFE_SKIP");
