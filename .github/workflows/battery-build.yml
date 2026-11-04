@@ -27,6 +27,7 @@ jobs:
         with:
           gradle-version: '8.7'
       - name: Build separate battery plugin
+        # v1.0.6: include Android 14 RecordingCanvas interception
         run: gradle --no-daemon :battery:assembleDebug
       - name: Verify APK package, version and Vector metadata
         shell: bash
