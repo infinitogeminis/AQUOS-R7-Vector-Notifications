@@ -39,7 +39,7 @@ jobs:
 
           BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
           echo "$BADGING"
-          grep -F "package: name='org.aquosr7.batterycolors' versionCode='3' versionName='1.0.2'" <<< "$BADGING"
+          grep -F "package: name='org.aquosr7.batterycolors' versionCode='4' versionName='1.0.3'" <<< "$BADGING"
 
           unzip -p "$APK" META-INF/xposed/module.prop | tee /tmp/module.prop
           unzip -p "$APK" META-INF/xposed/java_init.list | tee /tmp/java_init.list
@@ -51,10 +51,9 @@ jobs:
           grep -Fx 'org.aquosr7.batterycolors.BatteryEntry' /tmp/java_init.list
           grep -Fx 'com.android.systemui' /tmp/scope.list
 
-          unzip -l "$APK" | grep -F 'org/aquosr7/batterycolors/BatteryEntry.class' || true
           unzip -l "$APK" | grep -F 'classes.dex'
       - uses: actions/upload-artifact@v4
         with:
-          name: AQUOS-R7-Battery-Colors-Vector-v1.0.2
+          name: AQUOS-R7-Battery-Colors-Vector-v1.0.3
           path: battery/build/outputs/apk/debug/battery-debug.apk
           if-no-files-found: error
