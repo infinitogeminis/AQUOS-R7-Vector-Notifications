@@ -166,6 +166,10 @@ public final class BatteryEntry extends XposedModule {
                                             + (context == null ? "" :
                                             " dualTone=" + context.dualTone
                                             + " level=" + context.level
+                                            + " canvasClass="
+                                            + chain.getArg(0).getClass().getName()
+                                            + " hardwareAccelerated="
+                                            + ((Canvas) chain.getArg(0)).isHardwareAccelerated()
                                             + " canvasDrawPathCalls="
                                             + context.canvasDrawPathCalls
                                             + " bodyMatches="
@@ -183,7 +187,7 @@ public final class BatteryEntry extends XposedModule {
                 Log.w(TAG, "HOOK_METHOD_MISSING method=draw(Canvas)");
             }
 
-            installCanvasFillHook();
+            installCanvasFillHook(classLoader);
             installed++;
 
             if (installed < 2) {
@@ -253,41 +257,64 @@ public final class BatteryEntry extends XposedModule {
         }
     }
 
-    private void installCanvasFillHook() throws Exception {
-        Method drawPath = Canvas.class.getDeclaredMethod("drawPath", Path.class, Paint.class);
-        hook(drawPath).setId("aquosr7-battery-dualtone-canvas-fill-v106")
-                .intercept(chain -> {
-                    DrawContext context = ACTIVE_DRAW.get();
-                    if (context == null) return chain.proceed();
-                    context.canvasDrawPathCalls++;
-                    if (!context.dualTone
-                            || chain.getArg(0) != context.unifiedPath
-                            || chain.getArg(1) != context.fillPaint) {
-                        return chain.proceed();
-                    }
+    private void installCanvasFillHook(ClassLoader loader) throws Exception {
+        Method canvasDrawPath = Canvas.class.getDeclaredMethod(
+                "drawPath", Path.class, Paint.class);
+        installDrawPathHook(canvasDrawPath,
+                "aquosr7-battery-dualtone-canvas-fill-v106");
+        Log.i(TAG, "CANVAS_DRAWPATH_HOOK_INSTALLED class=android.graphics.Canvas");
 
-                    context.matchingBodyCalls++;
-                    Paint paint = context.fillPaint;
-                    int originalColor = paint.getColor();
-                    int batteryColor = colorForLevel(context.level);
-                    paint.setColor(batteryColor);
-                    try {
-                        Object result = chain.proceed();
-                        if (DUAL_TONE_DRAW_LOGGED.put(
-                                context.drawable, Boolean.TRUE) == null) {
-                            Log.i(TAG, "DUAL_TONE_BODY_DRAW_RECOLORED level="
-                                    + context.level + " color="
-                                    + String.format(java.util.Locale.ROOT,
-                                    "#%08X", batteryColor)
-                                    + " bolt=unchanged");
-                        }
-                        return result;
-                    } finally {
-                        paint.setColor(originalColor);
-                    }
-                });
-        Log.i(TAG, "HOOK_INSTALLED method=Canvas.drawPath(Path,Paint)"
-                + " signature=" + drawPath.toGenericString());
+        // Hardware-accelerated SystemUI views draw through RecordingCanvas.
+        // Android 14 overrides drawPath() there with a final implementation,
+        // so hooking Canvas.drawPath() alone does not intercept that dispatch.
+        try {
+            Class<?> recordingCanvas = loader.loadClass("android.graphics.RecordingCanvas");
+            Method recordingDrawPath = recordingCanvas.getDeclaredMethod(
+                    "drawPath", Path.class, Paint.class);
+            installDrawPathHook(recordingDrawPath,
+                    "aquosr7-battery-dualtone-recording-canvas-fill-v106");
+            Log.i(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_INSTALLED class="
+                    + recordingCanvas.getName()
+                    + " signature=" + recordingDrawPath.toGenericString());
+        } catch (Throwable error) {
+            Log.e(TAG, "RECORDING_CANVAS_DRAWPATH_HOOK_FAILED", error);
+        }
+    }
+
+    private void installDrawPathHook(Method drawPath, String hookId) {
+        hook(drawPath).setId(hookId).intercept(chain -> {
+            DrawContext context = ACTIVE_DRAW.get();
+            if (context == null) return chain.proceed();
+            context.canvasDrawPathCalls++;
+            if (!context.dualTone
+                    || chain.getArg(0) != context.unifiedPath
+                    || chain.getArg(1) != context.fillPaint) {
+                return chain.proceed();
+            }
+
+            context.matchingBodyCalls++;
+            Paint paint = context.fillPaint;
+            int originalColor = paint.getColor();
+            int batteryColor = colorForLevel(context.level);
+            paint.setColor(batteryColor);
+            try {
+                Object result = chain.proceed();
+                if (DUAL_TONE_DRAW_LOGGED.put(
+                        context.drawable, Boolean.TRUE) == null) {
+                    Log.i(TAG, "DUAL_TONE_BODY_DRAW_RECOLORED level="
+                            + context.level + " color="
+                            + String.format(java.util.Locale.ROOT,
+                            "#%08X", batteryColor)
+                            + " bolt=unchanged canvas="
+                            + chain.getThisObject().getClass().getName());
+                }
+                return result;
+            } finally {
+                paint.setColor(originalColor);
+            }
+        });
+        Log.i(TAG, "HOOK_INSTALLED method=" + drawPath.toGenericString()
+                + " id=" + hookId);
     }
 
     private static DrawContext createDrawContext(Object drawable) {
