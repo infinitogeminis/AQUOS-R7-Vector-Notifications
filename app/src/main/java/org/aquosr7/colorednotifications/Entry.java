@@ -193,7 +193,14 @@ public final class Entry extends XposedModule {
                         Object target = chain.getThisObject();
                         Object result = chain.proceed();
                         if (NATIVE_IMS_VIEWS.containsKey(target)) {
-                            recolorNativeImsVector((ImageView) target);
+                            int resourceId = (Integer) chain.getArg(0);
+                            String resourceName = ((ImageView) target).getResources()
+                                    .getResourceEntryName(resourceId);
+                            if ("ic_volte_tw".equals(resourceName)) {
+                                recolorNativeImsVector((ImageView) target);
+                            } else {
+                                Log.i(TAG, "NATIVE_IMS_COLOR_UNCHANGED resource=" + resourceName);
+                            }
                         }
                         return result;
                     });
@@ -222,7 +229,7 @@ public final class Entry extends XposedModule {
             int changed = recolorVectorNode(drawable, 0);
             if (changed > 0) {
                 imageView.setImageDrawable(drawable);
-                Log.i(TAG, "NATIVE_IMS_RED_TUNED paths=" + changed + " target=#FFA45A5A");
+                Log.i(TAG, "NATIVE_IMS_RED_TUNED paths=" + changed + " target=#FFB36666");
             } else {
                 Log.w(TAG, "NATIVE_IMS_RED_NOT_FOUND drawable=" + drawable.getClass().getName());
             }
@@ -278,7 +285,7 @@ public final class Entry extends XposedModule {
         if (valueField == null || valueField.getType() != int.class) return 0;
         valueField.setAccessible(true);
         if (valueField.getInt(complexColor) != 0xFF8C4141) return 0;
-        valueField.setInt(complexColor, 0xFFA45A5A);
+        valueField.setInt(complexColor, 0xFFB36666);
         return 1;
     }
 
