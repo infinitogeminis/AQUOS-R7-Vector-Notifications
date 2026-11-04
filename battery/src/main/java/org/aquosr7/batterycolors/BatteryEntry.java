@@ -61,3 +61,5 @@ public final class BatteryEntry extends XposedModule {
         return RED;
     }
 }
+
+// CI validation retry trigger.
