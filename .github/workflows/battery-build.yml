@@ -37,7 +37,7 @@ jobs:
           unzip -t "$APK"
           sha256sum "$APK"
           unzip -p "$APK" assets/xposed_init 2>/dev/null || true
-          aapt dump badging "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK"
       - uses: actions/upload-artifact@v4
         with:
           name: AQUOS-R7-Battery-Colors-Vector-v1.0.0
