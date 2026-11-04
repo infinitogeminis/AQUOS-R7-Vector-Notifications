@@ -27,7 +27,7 @@ jobs:
         with:
           gradle-version: '8.7'
       - name: Build separate battery plugin
-        # v1.0.7: correct Android 14 BatteryMeterView target/signature and unwrap drawable
+        # v1.0.8: hook Android 14 BaseRecordingCanvas final drawPath for body-only recoloring
         run: gradle --no-daemon :battery:assembleDebug
       - name: Verify APK package, version and Vector metadata
         shell: bash
@@ -40,7 +40,7 @@ jobs:
 
           BADGING="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK")"
           echo "$BADGING"
-          grep -F "package: name='org.aquosr7.batterycolors' versionCode='8' versionName='1.0.7'" <<< "$BADGING"
+          grep -F "package: name='org.aquosr7.batterycolors' versionCode='9' versionName='1.0.8'" <<< "$BADGING"
 
           unzip -p "$APK" META-INF/xposed/module.prop | tee /tmp/module.prop
           unzip -p "$APK" META-INF/xposed/java_init.list | tee /tmp/java_init.list
@@ -55,6 +55,6 @@ jobs:
           unzip -l "$APK" | grep -F 'classes.dex'
       - uses: actions/upload-artifact@v4
         with:
-          name: AQUOS-R7-Battery-Colors-Vector-v1.0.7
+          name: AQUOS-R7-Battery-Colors-Vector-v1.0.8
           path: battery/build/outputs/apk/debug/battery-debug.apk
           if-no-files-found: error
