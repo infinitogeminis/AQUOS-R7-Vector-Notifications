@@ -141,16 +141,11 @@ public final class Entry extends XposedModule {
             hook(method).setId(hookId).intercept(chain -> {
                 Object target = chain.getThisObject();
                 if (isNativeImsIcon(target)) {
-                    // All four Sharp IMS tint entry points are intercepted
-                    // before their original implementations can recolor the drawable.
                     return null;
                 }
                 if (!isThirdPartyNotification(target)) {
                     return chain.proceed();
                 }
-
-                // updateIconColor normally installs a ColorFilter. Clear any
-                // previous filter and suppress future monochrome conversion.
                 if ("updateIconColor".equals(name)) {
                     clearDrawableColorFilter(target);
                 }
@@ -161,7 +156,6 @@ public final class Entry extends XposedModule {
             Log.e(TAG, "Cannot install color hook " + name, error);
         }
     }
-
 
     /**
      * Sharp's collector receives four ImageViews: icon, network type, roaming,
@@ -232,7 +226,7 @@ public final class Entry extends XposedModule {
             int changed = recolorVectorNode(drawable, 0);
             if (changed > 0) {
                 imageView.setImageDrawable(drawable);
-                Log.i(TAG, "NATIVE_IMS_RED_TUNED paths=" + changed + " target=#FFE85A5A");
+                Log.i(TAG, "NATIVE_IMS_RED_TUNED paths=" + changed + " target=#FFF04B4B");
             } else {
                 Log.w(TAG, "NATIVE_IMS_RED_NOT_FOUND drawable=" + drawable.getClass().getName());
             }
@@ -288,16 +282,10 @@ public final class Entry extends XposedModule {
         if (valueField == null || valueField.getType() != int.class) return 0;
         valueField.setAccessible(true);
         if (valueField.getInt(complexColor) != 0xFF8C4141) return 0;
-        valueField.setInt(complexColor, 0xFFE85A5A);
+        valueField.setInt(complexColor, 0xFFF04B4B);
         return 1;
     }
 
-    /**
-     * Identify Sharp's native IMS status icons from the actual StatusBarIcon
-     * resource, not from guessed slot names. The firmware's selected drawable
-     * is preserved (including tw1/tw2 SIM selection); only tint mutations are
-     * skipped for these four known resource entry names.
-     */
     private static boolean isNativeImsIcon(Object target) {
         if (!(target instanceof View)) return false;
         String resourceName = null;
@@ -315,9 +303,6 @@ public final class Entry extends XposedModule {
             Object icon = drawableField.get(statusBarIcon);
             if (icon == null) return false;
 
-            // StatusBarIconView also handles app notification icons. Most are
-            // bitmaps/adaptive icons, for which getResId() throws. Check type
-            // first and ignore every non-resource icon without logging noise.
             Method getType = findMethod(icon.getClass(), "getType");
             if (getType == null) return false;
             Object typeValue = getType.invoke(icon);
@@ -331,9 +316,6 @@ public final class Entry extends XposedModule {
             Object packageValue = getResPackage.invoke(icon);
             if (!(packageValue instanceof String)) return false;
             resourcePackage = (String) packageValue;
-
-            // The four target drawables belong to SystemUI. Do not attempt to
-            // resolve foreign application resource IDs in SystemUI Resources.
             if (!SYSTEM_UI.equals(resourcePackage)) return false;
 
             Method getResId = findMethod(icon.getClass(), "getResId");
@@ -406,7 +388,6 @@ public final class Entry extends XposedModule {
             try {
                 return current.getDeclaredMethod(name, parameters);
             } catch (NoSuchMethodException ignored) {
-                // Continue through the superclass chain.
             }
         }
         return null;
@@ -418,7 +399,6 @@ public final class Entry extends XposedModule {
             try {
                 return current.getDeclaredField(name);
             } catch (NoSuchFieldException ignored) {
-                // Continue through the superclass chain.
             }
         }
         return null;
