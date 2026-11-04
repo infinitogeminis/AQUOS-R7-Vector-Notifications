@@ -10,20 +10,18 @@ import java.util.WeakHashMap;
 
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
+import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam;
 
-/**
- * Standalone Vector plugin for AQUOS R7 battery fill colors.
- *
- * This diagnostic release logs every lifecycle stage so that a missing
- * SystemUI hook can be distinguished from a drawable-specific limitation.
- */
+/** Standalone Vector plugin for AQUOS R7 battery fill colors. */
 public final class BatteryEntry extends XposedModule {
     private static final String TAG = "AQUOSR7BatteryColors";
     private static final String SYSTEM_UI = "com.android.systemui";
     private static final String DRAWABLE_CLASS =
             "com.android.settingslib.graph.ThemedBatteryDrawable";
 
+    private static final Map<ClassLoader, Boolean> HOOKED_CLASSLOADERS =
+            Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Object, Integer> LAST_LOGGED_LEVEL =
             Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Object, Boolean> DUAL_TONE_WARNED =
@@ -31,51 +29,102 @@ public final class BatteryEntry extends XposedModule {
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
-        Log.i(TAG, "MODULE_LOADED process=" + param.getProcessName());
+        Log.i(TAG, "MODULE_LOADED process=" + param.getProcessName()
+                + " systemServer=" + param.isSystemServer());
     }
 
+    /**
+     * Install at the earliest package lifecycle stage. This avoids relying
+     * solely on AppComponentFactory's later PackageReady callback in SystemUI.
+     */
+    @Override
+    public void onPackageLoaded(PackageLoadedParam param) {
+        String packageName = param.getPackageName();
+        Log.i(TAG, "PACKAGE_LOADED package=" + packageName
+                + " first=" + param.isFirstPackage());
+        if (!SYSTEM_UI.equals(packageName)) return;
+
+        ClassLoader loader = param.getDefaultClassLoader();
+        Log.i(TAG, "SYSTEMUI_CLASSLOADER source=package_loaded loader="
+                + loaderIdentity(loader));
+        installHooks(loader, "package_loaded");
+    }
+
+    /** Fallback for frameworks/packages that provide a distinct active loader. */
     @Override
     public void onPackageReady(PackageReadyParam param) {
         String packageName = param.getPackageName();
-        Log.i(TAG, "PACKAGE_READY package=" + packageName);
+        Log.i(TAG, "PACKAGE_READY package=" + packageName
+                + " first=" + param.isFirstPackage());
+        if (!SYSTEM_UI.equals(packageName)) return;
 
-        if (!SYSTEM_UI.equals(packageName)) {
+        ClassLoader loader = param.getClassLoader();
+        Log.i(TAG, "SYSTEMUI_CLASSLOADER source=package_ready loader="
+                + loaderIdentity(loader));
+        installHooks(loader, "package_ready");
+    }
+
+    private static String loaderIdentity(ClassLoader loader) {
+        return loader == null ? "null"
+                : loader.getClass().getName() + "@"
+                + Integer.toHexString(System.identityHashCode(loader));
+    }
+
+    private synchronized void installHooks(ClassLoader classLoader, String phase) {
+        if (classLoader == null) {
+            Log.e(TAG, "SYSTEMUI_CLASSLOADER_NULL phase=" + phase);
+            return;
+        }
+        if (HOOKED_CLASSLOADERS.containsKey(classLoader)) {
+            Log.i(TAG, "HOOKS_ALREADY_INSTALLED phase=" + phase);
             return;
         }
 
         try {
-            ClassLoader classLoader = param.getClassLoader();
             Class<?> drawable = classLoader.loadClass(DRAWABLE_CLASS);
-            Log.i(TAG, "DRAWABLE_CLASS_FOUND name=" + drawable.getName());
+            Log.i(TAG, "DRAWABLE_CLASS_FOUND name=" + drawable.getName()
+                    + " phase=" + phase);
 
             Method setLevel = findMethod(drawable, "setBatteryLevel", int.class);
             Method setColors = findMethod(drawable, "setColors",
                     int.class, int.class, int.class);
 
-            if (setLevel == null || setColors == null) {
-                throw new NoSuchMethodException(
-                        "ThemedBatteryDrawable.setBatteryLevel/setColors"
-                                + " setBatteryLevelFound=" + (setLevel != null)
-                                + " setColorsFound=" + (setColors != null));
+            // Do not let one absent overload prevent installation of the other.
+            int installed = 0;
+            if (setLevel != null) {
+                hook(setLevel).setId("aquosr7-battery-fill-level").intercept(chain -> {
+                    Object result = chain.proceed();
+                    applyBatteryFill(chain.getThisObject());
+                    return result;
+                });
+                installed++;
+                Log.i(TAG, "HOOK_INSTALLED method=setBatteryLevel(int)");
+            } else {
+                Log.w(TAG, "HOOK_METHOD_MISSING method=setBatteryLevel(int)");
             }
 
-            hook(setLevel).setId("aquosr7-battery-fill-level").intercept(chain -> {
-                Object result = chain.proceed();
-                applyBatteryFill(chain.getThisObject());
-                return result;
-            });
-            Log.i(TAG, "HOOK_INSTALLED method=setBatteryLevel(int)");
+            if (setColors != null) {
+                hook(setColors).setId("aquosr7-battery-fill-colors").intercept(chain -> {
+                    Object result = chain.proceed();
+                    applyBatteryFill(chain.getThisObject());
+                    return result;
+                });
+                installed++;
+                Log.i(TAG, "HOOK_INSTALLED method=setColors(int,int,int)");
+            } else {
+                Log.w(TAG, "HOOK_METHOD_MISSING method=setColors(int,int,int)");
+            }
 
-            hook(setColors).setId("aquosr7-battery-fill-colors").intercept(chain -> {
-                Object result = chain.proceed();
-                applyBatteryFill(chain.getThisObject());
-                return result;
-            });
-            Log.i(TAG, "HOOK_INSTALLED method=setColors(int,int,int)");
+            if (installed == 0) {
+                throw new NoSuchMethodException(
+                        "No supported battery drawable update methods found");
+            }
 
-            Log.i(TAG, "BATTERY_FILL_HOOKS_INSTALLED class=" + drawable.getName());
+            HOOKED_CLASSLOADERS.put(classLoader, Boolean.TRUE);
+            Log.i(TAG, "BATTERY_FILL_HOOKS_INSTALLED count=" + installed
+                    + " class=" + drawable.getName() + " phase=" + phase);
         } catch (Throwable error) {
-            Log.e(TAG, "BATTERY_FILL_HOOKS_FAILED package=" + packageName, error);
+            Log.e(TAG, "BATTERY_FILL_HOOKS_FAILED phase=" + phase, error);
         }
     }
 
