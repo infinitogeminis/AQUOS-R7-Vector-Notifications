@@ -196,7 +196,10 @@ public final class Entry extends XposedModule {
                             int resourceId = (Integer) chain.getArg(0);
                             String resourceName = ((ImageView) target).getResources()
                                     .getResourceEntryName(resourceId);
-                            if ("ic_volte_tw".equals(resourceName)) {
+                            if ("ic_volte_tw".equals(resourceName)
+                                    || "ic_vowifi_tw".equals(resourceName)
+                                    || "ic_vowifi_tw1".equals(resourceName)
+                                    || "ic_vowifi_tw2".equals(resourceName)) {
                                 recolorNativeImsVector((ImageView) target);
                             } else {
                                 Log.i(TAG, "NATIVE_IMS_COLOR_UNCHANGED resource=" + resourceName);
